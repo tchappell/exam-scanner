@@ -1,0 +1,22 @@
+{
+  "source": {
+    "originalName": "mcq_2sided.pdf",
+    "sizeBytes": 182016,
+    "description": "Synthetic two-sided Test Answer Sheet supplied for characterization testing."
+  },
+  "scanConfiguration": {
+    "startAt": 1,
+    "endAt": 2,
+    "twoSided": true,
+    "hasMarker": false,
+    "questionCount": 160
+  },
+  "studentNumber": "12345678",
+  "surname": "MARKER",
+  "initials": "ZYX",
+  "answerPattern": "ADDEEDACAC",
+  "answerPatternRepeats": 16,
+  "questionable": [
+    { "page": 1, "question": 102, "scannedAnswer": "D" }
+  ]
+}

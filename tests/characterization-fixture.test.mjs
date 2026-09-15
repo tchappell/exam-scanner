@@ -26,3 +26,28 @@ test('the reviewed scanner characterization fixture is complete', async () => {
     assert.ok(result.answers.length <= 40);
   }
 });
+
+test('the reviewed two-sided characterization fixture covers all 160 questions', async () => {
+  const fixtureUrl = new URL('./fixtures/mcq_2sided.pdf', import.meta.url);
+  const expectedUrl = new URL('./fixtures/mcq_2sided.expected.json', import.meta.url);
+  const [pdf, pdfStat, expectedText] = await Promise.all([
+    readFile(fixtureUrl),
+    stat(fixtureUrl),
+    readFile(expectedUrl, 'utf8')
+  ]);
+  const expected = JSON.parse(expectedText);
+
+  assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
+  assert.equal(pdfStat.size, expected.source.sizeBytes);
+  assert.deepEqual(expected.scanConfiguration, {
+    startAt: 1,
+    endAt: 2,
+    twoSided: true,
+    hasMarker: false,
+    questionCount: 160
+  });
+  assert.equal(
+    expected.answerPattern.length * expected.answerPatternRepeats,
+    expected.scanConfiguration.questionCount
+  );
+});

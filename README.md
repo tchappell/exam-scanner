@@ -26,8 +26,8 @@ npm run test:e2e
 ```
 
 `npm test` runs the fast unit tests. `npm run test:e2e` starts Vite and uses the
-installed Microsoft Edge browser to run the full ten-page recognition fixture;
-it takes roughly 90 seconds on the current development machine.
+installed Microsoft Edge browser to run both recognition fixtures; it takes
+roughly 90 seconds on the current development machine.
 
 ## Characterization fixture
 
@@ -35,16 +35,19 @@ it takes roughly 90 seconds on the current development machine.
 to preserve the current recognition behaviour. Its observed output is recorded in
 `tests/fixtures/scan_chappeta.expected.json`.
 
+`tests/fixtures/mcq_2sided.pdf` is a synthetic, non-student, two-page sheet that
+covers the two-sided path and all 160 answer positions. Its reviewed output is
+recorded in `tests/fixtures/mcq_2sided.expected.json`.
+
 The fast automated tests check the fixture's presence and schema. The Playwright
 test runs the actual OpenCV/TensorFlow pipeline and compares student details,
 answers, and questionable flags with the reviewed output.
 
 Baseline scan settings:
 
-- pages 1–10
-- one page per exam (`twoSided: false`)
+- one-sided batch: pages 1-10, one page per exam, 40 answer positions
+- two-sided sheet: pages 1-2, one exam, 160 answer positions
 - no marker page
-- 40 answer positions per exam
 
 ## Current architecture
 
@@ -69,4 +72,5 @@ logic should not be reorganized until its fixture can be exercised automatically
   represented or scanned.
 - The recognition bundle is large and initial model loading may take noticeable
   time.
-- The current fixture covers one-sided, 40-question sheets only.
+- The fixtures do not yet cover marker-sheet extraction or true multiple-response
+  answers.
