@@ -1,3 +1,25 @@
+function ToggleOption({ id, label, description, ariaLabel, checked, disabled, onChange }) {
+  return (
+    <label class={`setup-toggle ${checked ? 'is-selected' : ''}`} htmlFor={id}>
+      <span>
+        <strong>{label}</strong>
+        <small>{description}</small>
+      </span>
+      <input
+        autocomplete="off"
+        id={id}
+        name={id}
+        type="checkbox"
+        class="form-check-input"
+        aria-label={ariaLabel ?? label}
+        disabled={disabled}
+        checked={checked}
+        onChange={onChange}
+      />
+    </label>
+  );
+}
+
 export function ScannerConfig({ config, setConfig, pdf, currentlyScanning }) {
   const setNumber = field => event => {
     const value = Number.parseInt(event.target.value, 10);
@@ -9,46 +31,36 @@ export function ScannerConfig({ config, setConfig, pdf, currentlyScanning }) {
   };
 
   return (
-    <>
-      <div><p class="text-center fw-bold">Configuration</p></div>
-      <div class="text-start">
-        <div>
-          <label htmlFor="startAt">Start at page:&nbsp;</label>
+    <div class="scanner-config">
+      <div class="page-range" aria-label="Pages to scan">
+        <div class="field-group">
+          <label htmlFor="startAt">Start page</label>
           <input autocomplete="off" id="startAt" name="startAt" type="number" min={1}
             max={pdf ? pdf.numPages : undefined} step={1} disabled={currentlyScanning}
             value={config.startAt} onChange={setNumber('startAt')} />
         </div>
-        <div>
-          <label htmlFor="endAt">End at page:&nbsp;</label>
+        <span class="page-range__divider" aria-hidden="true">to</span>
+        <div class="field-group">
+          <label htmlFor="endAt">End page</label>
           <input autocomplete="off" id="endAt" name="endAt" type="number" min={1}
             max={pdf ? pdf.numPages : undefined} step={1} disabled={currentlyScanning}
             value={config.endAt} onChange={setNumber('endAt')} />
         </div>
-        <div>
-          <label htmlFor="twoSided" class="form-check-label">Two-sided?&nbsp;</label>
-          <input autocomplete="off" id="twoSided" name="twoSided" type="checkbox"
-            class="form-check-input" disabled={currentlyScanning} checked={config.twoSided}
-            onChange={setBoolean('twoSided')} />
-        </div>
-        <div>
-          <label htmlFor="hasMarker" class="form-check-label">Has marker sheet?&nbsp;</label>
-          <input autocomplete="off" id="hasMarker" name="hasMarker" type="checkbox"
-            class="form-check-input" disabled={currentlyScanning} checked={config.hasMarker}
-            onChange={setBoolean('hasMarker')} />
-        </div>
-        <div>
-          <label htmlFor="hasMultiAnswer" class="form-check-label">Contains multi-answer questions?&nbsp;</label>
-          <input autocomplete="off" id="hasMultiAnswer" name="hasMultiAnswer" type="checkbox"
-            class="form-check-input" disabled={currentlyScanning} checked={config.hasMultiAnswer}
-            onChange={setBoolean('hasMultiAnswer')} />
-        </div>
-        <div>
-          <label htmlFor="showQuestionable" class="form-check-label">List questionable scans?&nbsp;</label>
-          <input autocomplete="off" id="showQuestionable" name="showQuestionable" type="checkbox"
-            class="form-check-input" disabled={currentlyScanning} checked={config.showQuestionable}
-            onChange={setBoolean('showQuestionable')} />
-        </div>
       </div>
-    </>
+      <div class="setup-toggle-grid">
+        <ToggleOption id="twoSided" label="Two-sided sheets" ariaLabel="Two-sided?"
+          description="Read questions 1–160 across paired pages."
+          checked={config.twoSided} disabled={currentlyScanning} onChange={setBoolean('twoSided')} />
+        <ToggleOption id="hasMarker" label="Marker sheet included" ariaLabel="Has marker sheet?"
+          description="Use the first sheet as the answer key."
+          checked={config.hasMarker} disabled={currentlyScanning} onChange={setBoolean('hasMarker')} />
+        <ToggleOption id="hasMultiAnswer" label="Multi-answer questions" ariaLabel="Contains multi-answer questions?"
+          description="Choose exact-set questions individually below."
+          checked={config.hasMultiAnswer} disabled={currentlyScanning} onChange={setBoolean('hasMultiAnswer')} />
+        <ToggleOption id="showQuestionable" label="Review uncertain marks" ariaLabel="List questionable scans?"
+          description="Keep questionable responses in a review queue."
+          checked={config.showQuestionable} disabled={currentlyScanning} onChange={setBoolean('showQuestionable')} />
+      </div>
+    </div>
   );
 }

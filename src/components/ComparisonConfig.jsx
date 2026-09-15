@@ -18,51 +18,47 @@ export function ComparisonConfig({ comparison, setComparison, scannerConfig, cur
   };
 
   return (
-    <div class="card px-2">
-      <label htmlFor="comparisonFileUpload">Submit raw_results.csv for comparison</label>
-      {'filename' in comparison ?
-        <button class="btn btn-secondary" onClick={() => setComparison({})} disabled={currentlyScanning}>
-          Remove {comparison.filename}
-        </button>
-        :
-        <input type="file" accept="text/csv" onChange={csvSelected} disabled={currentlyScanning} class="btn" id="comparisonFileUpload" />
-      }
-      {'error' in comparison ? <p class="text-danger">{comparison.error}</p> : null}
-      {'results' in comparison ? <>
-        <div>
-          <label htmlFor="cfg_checkNumbers" class="form-check-label">Check student numbers&nbsp;</label>
-          <input autocomplete="off" id="cfg_checkNumbers" name="cfg_checkNumbers" type="checkbox"
-            class="form-check-input" disabled={currentlyScanning} checked={comparison.cfg_checkNumbers}
-            onChange={setFlag('cfg_checkNumbers')} />
+    <div class="comparison-config">
+      <div>
+        <p class="comparison-config__title">Optional comparison</p>
+        <p class="comparison-config__description">Load a raw results CSV to highlight differences while scanning.</p>
+      </div>
+      {'filename' in comparison ? (
+        <div class="comparison-config__loaded">
+          <span>{comparison.filename}</span>
+          <button class="btn btn-sm btn-outline-secondary" onClick={() => setComparison({})} disabled={currentlyScanning}>Remove</button>
         </div>
-        <div>
-          <label htmlFor="cfg_checkName" class="form-check-label">Check surnames&nbsp;</label>
-          <input autocomplete="off" id="cfg_checkName" name="cfg_checkName" type="checkbox"
-            class="form-check-input" disabled={currentlyScanning} checked={comparison.cfg_checkName}
-            onChange={setFlag('cfg_checkName')} />
+      ) : (
+        <input type="file" accept="text/csv" onChange={csvSelected} disabled={currentlyScanning}
+          class="form-control" id="comparisonFileUpload" aria-label="Submit raw_results.csv for comparison" />
+      )}
+      {'error' in comparison ? <p class="text-danger mb-0">{comparison.error}</p> : null}
+      {'results' in comparison ? (
+        <div class="comparison-options">
+          {[
+            ['cfg_checkNumbers', 'Student numbers'],
+            ['cfg_checkName', 'Surnames'],
+            ['cfg_checkInitials', 'Initials'],
+            ['cfg_checkAnswers', 'Answers']
+          ].map(([field, label]) => (
+            <label key={field} htmlFor={field}>
+              <input autocomplete="off" id={field} name={field} type="checkbox"
+                class="form-check-input" disabled={currentlyScanning} checked={comparison[field]}
+                onChange={setFlag(field)} />
+              {label}
+            </label>
+          ))}
+          <div class="field-group comparison-options__page">
+            <label htmlFor="cfg_firstPage">CSV page 1 starts at PDF page</label>
+            <input autocomplete="off" id="cfg_firstPage" name="cfg_firstPage" type="number"
+              min={1} step={1} disabled={currentlyScanning} value={comparison.cfg_firstPage}
+              onChange={event => {
+                const value = Number.parseInt(event.target.value, 10);
+                setComparison(previous => ({ ...previous, cfg_firstPage: value }));
+              }} />
+          </div>
         </div>
-        <div>
-          <label htmlFor="cfg_checkInitials" class="form-check-label">Check initials&nbsp;</label>
-          <input autocomplete="off" id="cfg_checkInitials" name="cfg_checkInitials" type="checkbox"
-            class="form-check-input" disabled={currentlyScanning} checked={comparison.cfg_checkInitials}
-            onChange={setFlag('cfg_checkInitials')} />
-        </div>
-        <div>
-          <label htmlFor="cfg_checkAnswers" class="form-check-label">Check answers&nbsp;</label>
-          <input autocomplete="off" id="cfg_checkAnswers" name="cfg_checkAnswers" type="checkbox"
-            class="form-check-input" disabled={currentlyScanning} checked={comparison.cfg_checkAnswers}
-            onChange={setFlag('cfg_checkAnswers')} />
-        </div>
-        <div>
-          <label htmlFor="cfg_firstPage">PDF page corresponding to page 1 in CSV:&nbsp;</label>
-          <input autocomplete="off" id="cfg_firstPage" name="cfg_firstPage" type="number"
-            min={1} step={1} disabled={currentlyScanning} value={comparison.cfg_firstPage}
-            onChange={event => {
-              const value = Number.parseInt(event.target.value, 10);
-              setComparison(previous => ({ ...previous, cfg_firstPage: value }));
-            }} />
-        </div>
-      </> : null}
+      ) : null}
     </div>
   );
 }

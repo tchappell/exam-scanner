@@ -66,8 +66,17 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
 
 ## Current architecture
 
-- `src/app.jsx` contains the Preact interface and most import/export workflows.
-- `src/components/` contains configuration and scanner-status UI components.
+- `src/app.jsx` coordinates application state, scanning, review, and import/export
+  workflows. Large workflow areas are being extracted without changing the
+  recognition pipeline.
+- `src/components/WorkspaceSection.jsx` provides the application shell, workflow
+  navigation, numbered sections, and empty states.
+- `src/components/PdfSetupPanel.jsx`, `ScannerConfig.jsx`, and
+  `ComparisonConfig.jsx` own the document-setup experience.
+- `src/components/AnswerKeyGrid.jsx` owns the responsive 40/160-question key,
+  including per-question multi-answer controls.
+- `src/components/ScanProgress.jsx` and `ScanIssues.jsx` present scanner status
+  without owning scanner state.
 - `src/scannerWorker.js` contains the OpenCV/TensorFlow recognition pipeline.
 - `src/scannerClient.mjs` owns the request/response boundary to that worker.
 - `src/examDomain.mjs` contains small, testable scoring and normalization rules.
@@ -79,6 +88,11 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
 
 The large UI and worker files are intentionally being split gradually. Recognition
 logic should not be reorganized until its fixture can be exercised automatically.
+
+The interface is arranged as a four-step workspace: set up the document,
+configure the key, review scans, then export or transfer results. Keep new UI
+features within the component that owns their workflow step rather than adding
+more presentation logic directly to `App`.
 
 ## Known limitations
 

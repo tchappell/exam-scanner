@@ -18,6 +18,10 @@ import { createLazyScannerClient } from './scannerClient.mjs';
 import { ScanIssues } from './components/ScanIssues.jsx';
 import { ScannerConfig } from './components/ScannerConfig.jsx';
 import { ComparisonConfig } from './components/ComparisonConfig.jsx';
+import { AnswerKeyGrid } from './components/AnswerKeyGrid.jsx';
+import { AppHeader, EmptyState, WorkspaceSection } from './components/WorkspaceSection.jsx';
+import { PdfSetupPanel } from './components/PdfSetupPanel.jsx';
+import { ScanProgress } from './components/ScanProgress.jsx';
 import { matchExamResultsToCanvas } from './services/canvasMatching.mjs';
 import { buildRawResultsCsvRows, buildResultsCsvRows } from './services/resultExports.mjs';
 import uploadMarks from './uploadMarks.txt?raw';
@@ -58,85 +62,7 @@ function AnswerKey({ cfg, setCfg, pdf, currentlyScanning }) {
   const [comments, setComments] = useState('');
   const [appendScans, setAppendScans] = useState(false);
 
-  // Fill question groupings
-  let groups = [];
-  const majorGroupCount = 1;
-  const blockCount = 4;
-  const blockSize = cfg.twoSided ? 40 : 10;
-  const options = ["A", "B", "C", "D", "E"];
-  for (let majorGroup = 0; majorGroup < majorGroupCount; majorGroup++) {
-    let group = [];
-    for (let block = 0; block < blockCount; block++) {
-      let column = [];
-
-      for (let row = 0; row < blockSize; row++) {
-        let qnum = majorGroup * (blockSize * blockCount) + block * blockSize + row;
-        let label_prefix = `ak_${qnum + 1}_`;
-        const multiAnswer = Boolean(cfg.hasMultiAnswer && cfg.multiAnswerQuestions?.[qnum]);
-        let entry = (<>
-          <div class="btn-group btn-group-sm mt-1 mb-1" role="group">
-            <span class="btn fw-bold me-2">Q{qnum + 1}:</span>
-            {cfg.hasMultiAnswer ? <>
-              <input
-                type="checkbox"
-                class="btn-check"
-                autocomplete="off"
-                id={`${label_prefix}multi`}
-                checked={multiAnswer}
-                disabled={currentlyScanning}
-                onChange={event => {
-                  const multiAnswerQuestions = { ...(cfg.multiAnswerQuestions ?? {}) };
-                  if (event.target.checked) multiAnswerQuestions[qnum] = true;
-                  else delete multiAnswerQuestions[qnum];
-                  setCfg(previous => ({ ...previous, multiAnswerQuestions }));
-                }}
-              />
-              <label
-                class="btn btn-outline-secondary"
-                htmlFor={`${label_prefix}multi`}
-                aria-label={`Question ${qnum + 1} uses multiple answers`}
-                title="Require the student's selected set to match every keyed answer"
-              >Multi</label>
-            </> : null}
-            {options.map(opt => <Fragment key={opt}>
-              <input
-                type="checkbox" class="btn-check" autocomplete="off"
-                id={label_prefix + opt}
-                checked={qnum in cfg.answerKey && opt in cfg.answerKey[qnum] && cfg.answerKey[qnum][opt]}
-                disabled={currentlyScanning}
-                onChange={
-                  e => {
-                    const answerKey = JSON.parse(JSON.stringify(cfg.answerKey));
-                    const newValue = e.target.checked ? true : false;
-                    if (!newValue) {
-                      if (qnum in answerKey) {
-                        if (opt in answerKey[qnum]) {
-                          delete answerKey[qnum][opt];
-                        }
-                      }
-                    } else {
-                      if (!(qnum in answerKey)) {
-                        answerKey[qnum] = {};
-                      }
-                      answerKey[qnum][opt] = true;
-                    }
-                    setCfg(cfg => ({ ...cfg, answerKey }));
-                  }
-                }
-              />
-              <label class="btn btn-outline-primary" htmlFor={label_prefix + opt}>{opt}</label>
-            </Fragment>)}
-          </div>
-
-        </>);
-        column.push(entry);
-      }
-
-      group.push(column);
-    }
-
-    groups.push(group);
-  }
+  const options = ANSWER_OPTIONS;
 
   const exportPdf = async e => {
     const [{ PDFDocument, rgb, StandardFonts }, buffer] = await Promise.all([
@@ -245,11 +171,7 @@ function AnswerKey({ cfg, setCfg, pdf, currentlyScanning }) {
   };
 
   return (<>
-    {groups.map(group => <div class="row">
-      {group.map(column => <div class="col-sm-3">
-        {column}
-      </div>)}
-    </div>)}
+    <AnswerKeyGrid cfg={cfg} setCfg={setCfg} currentlyScanning={currentlyScanning} />
     <div class="row">
       <div class="col-12">
         <div class="card mb-4">
@@ -1019,6 +941,13 @@ const ExamResultsDisplay = ({ cfg, examResults, setExamResults, pdf }) => {
   const [search, setSearch] = useState('');
   const [sorting, setSorting] = useState(null);
 
+  if (examResults.length === 0) {
+    return <EmptyState
+      title="No exams scanned yet"
+      description="Your scanned exams will appear here with editable student details, answers and scores."
+    />;
+  }
+
   const examResultsRowInstance = examResultsRow(cfg, setExamResults, pdf);
 
   const shownExams = search === '' ? range(examResults.length) : range(examResults.length).filter(i => {
@@ -1179,7 +1108,6 @@ export function App() {
   const [scanStage, setScanStage] = useState(null);
   const [examResults, setExamResults] = useState([]);
   const [previewURI, setPreviewURI] = useState(null);
-  const [outURIs, setOutURIs] = useState([]);
   const [comparison, setComparison] = useState({});
   const [canvasCSV, setCanvasCSV] = useState(null);
   const [canvasAssignment, setCanvasAssignment] = useState('-1');
@@ -1234,22 +1162,6 @@ export function App() {
     unmatchedExamResults,
     unmatchedStudents
   } = matchExamResultsToCanvas(examResults, canvasCSV);
-
-  const dbgOutput = blobs => {
-    setOutURIs(prev => {
-      for (const blob of prev) {
-        if (blob.startsWith('blob:')) URL.revokeObjectURL(blob);
-      }
-      return [...blobs];
-    });
-  }
-  const dbgOutputAppend = blob => {
-    setOutURIs(prev => {
-      return [...prev, blob];
-    });
-  }
-
-
 
   const getPdfPage = async (currentPage) => {
     const page = await pdf.getPage(currentPage);
@@ -1588,74 +1500,92 @@ export function App() {
     else setPdfPage(pdfPage + 1);
   };
 
+  const keyedQuestionCount = Object.values(cfg.answerKey)
+    .filter(answer => Object.values(answer).some(Boolean)).length;
+
   return (
-    <div class="container">
-      <p class="display-6">Exam Scanner</p>
-      <div class="row">
-        {
-          pdf === null ?
-            <input type="file" accept="application/pdf" onChange={pdfSelected} class="btn" />
-            :
-            <button class="btn btn-outline-danger" onClick={pdfDeselected} disabled={currentlyScanning}>Remove PDF</button>
-        }
+    <div class="exam-scanner-app">
+      <div class="app-backdrop" aria-hidden="true"></div>
+      <div class="app-container">
+        <AppHeader pdfName={pdfName} resultCount={examResults.length} currentlyScanning={currentlyScanning} />
 
-      </div>
-      <div class="row">
-        <div class="col-sm-3">
-
-          {previewURI !== null ?
-            <div class="text-center">
-              <p class="fw-bold">PDF Preview</p>
-              <img src={previewURI} style={{
-                width: '200px',
-                height: 'auto',
-                display: 'block',
-                objectFit: 'contain',
-                margin: '0 auto'
-              }} />
-              <div><p>Current page: {pdfPage} / {pdf.numPages}</p></div>
-              <button onClick={prevPage} class="btn btn-info me-1">Prev page</button>
-              <button onClick={nextPage} class="btn btn-info ms-1">Next page</button>
-            </div>
-            : <></>}
-        </div>
-        <div class="col-sm-9">
-          <ScannerConfig config={cfg} setConfig={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
-          <ComparisonConfig comparison={comparison} setComparison={setComparison} scannerConfig={cfg} currentlyScanning={currentlyScanning} />
-        </div>
-      </div>
-      <AnswerKey cfg={cfg} setCfg={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
-
-      <div class="row mb-4">
-        <div class="col-12">
-          <button
-            disabled={pdf === null}
-            onClick={scanExams}
-            class={`btn btn-lg ${(currentlyScanning) ? "btn-danger" : "btn-success"} w-100`}
+        <main class="workspace">
+          <WorkspaceSection
+            id="setup"
+            number="1"
+            eyebrow="Document"
+            title="Set up the scan"
+            description="Load a PDF, choose its page range and describe the answer-sheet format."
           >
-            {currentlyScanning ? "Stop scanning" : "Scan Exams"}
-          </button>
-        </div>
-      </div>
-
-      <ScanIssues issues={scanIssues} onDismiss={() => setScanIssues([])} />
-
-      <div class="row">
-        {progress === null ? <></> :
-          <><div>{scanStage ?? 'Scanning exams'}... {progress[0]}/{progress[1]}</div>
-            <div class="progress" role="progressbar" aria-label="Progress" aria-valuenow={progress[0] * 100 / progress[1]} aria-valuemin="0" aria-valuemax="100">
-              <div class="progress-bar" style={{ width: `${progress[0] * 100 / progress[1]}%` }}>
+            <div class="setup-layout">
+              <PdfSetupPanel
+                pdf={pdf}
+                pdfName={pdfName}
+                previewURI={previewURI}
+                currentPage={pdfPage}
+                currentlyScanning={currentlyScanning}
+                onSelect={pdfSelected}
+                onRemove={pdfDeselected}
+                onPrevious={prevPage}
+                onNext={nextPage}
+              />
+              <div class="setup-layout__options">
+                <ScannerConfig config={cfg} setConfig={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
+                <ComparisonConfig comparison={comparison} setComparison={setComparison} scannerConfig={cfg} currentlyScanning={currentlyScanning} />
               </div>
             </div>
-          </>
-        }
-      </div>
-      <div class="row">
-        <ExamResultsDisplay cfg={cfg} examResults={examResults} setExamResults={setExamResults} pdf={pdf} />
-      </div>
-      <div class="row mt-2">
-        <div class="col-5">
-          <button class="btn btn-outline-primary w-100" onClick={e => {
+          </WorkspaceSection>
+
+          <WorkspaceSection
+            id="answer-key"
+            number="2"
+            eyebrow="Marking"
+            title="Configure the answer key"
+            description="Select every accepted answer. Enable Multi only where the complete selected set is required."
+            actions={<span class="section-count">{keyedQuestionCount} keyed</span>}
+          >
+            <AnswerKey cfg={cfg} setCfg={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
+          </WorkspaceSection>
+
+          <div class="scan-action-panel">
+            <div>
+              <p class="scan-action-panel__eyebrow">Ready to process</p>
+              <h2>{pdf ? `${pdf.numPages} page PDF loaded` : 'Load a PDF to begin'}</h2>
+              <p>Recognition runs locally. Review uncertain marks before exporting final grades.</p>
+            </div>
+            <button
+              disabled={pdf === null}
+              onClick={scanExams}
+              class={`btn btn-lg ${currentlyScanning ? 'btn-danger' : 'btn-primary'} scan-action-panel__button`}
+            >
+              {currentlyScanning ? 'Stop scanning' : 'Scan Exams'}
+            </button>
+          </div>
+
+          <ScanProgress progress={progress} stage={scanStage} />
+          <ScanIssues issues={scanIssues} onDismiss={() => setScanIssues([])} />
+
+          <WorkspaceSection
+            id="results"
+            number="3"
+            eyebrow="Verification"
+            title="Review scanned exams"
+            description="Confirm student details, answers and scores. Question columns scroll horizontally."
+            actions={<span class="section-count">{examResults.length} scanned</span>}
+          >
+            <ExamResultsDisplay cfg={cfg} examResults={examResults} setExamResults={setExamResults} pdf={pdf} />
+          </WorkspaceSection>
+
+          <WorkspaceSection
+            id="exports"
+            number="4"
+            eyebrow="Output"
+            title="Export and continue"
+            description="Download results, resume previous work, or prepare grades for Canvas."
+          >
+      <div class="export-grid">
+        <div>
+          <button class="export-card" disabled={examResults.length === 0} onClick={e => {
             const csv = buildResultsCsvRows({
               examResults,
               answerKey: cfg.answerKey,
@@ -1664,19 +1594,25 @@ export function App() {
             });
             const blob = new Blob([createCSV(csv)], { type: 'text/csv' });
             download_file("results.csv", blob);
-          }}>Export results.csv (contains grades, but not individual answers)</button>
+          }}>
+            <strong>Grade summary</strong>
+            <span>results.csv · scores and student details</span>
+          </button>
         </div>
-        <div class="col-4">
-          <button class="btn btn-outline-primary w-100" onClick={e => {
+        <div>
+          <button class="export-card" disabled={examResults.length === 0} onClick={e => {
             const csv = buildRawResultsCsvRows({ examResults, pdfName });
 
             const blob = new Blob([createCSV(csv)], { type: 'text/csv' });
             download_file("raw_results.csv", blob);
-          }}>Export raw_results.csv (contains individual answers)</button>
+          }}>
+            <strong>Detailed responses</strong>
+            <span>raw_results.csv · every answer position</span>
+          </button>
         </div>
-        <div class="col-3">
+        <div>
 
-          <button class="btn btn-outline-primary w-100" onClick={async e => {
+          <button class="export-card" disabled={examResults.length === 0} onClick={async e => {
             let pdfHash = null;
             if (pdf) {
               pdfHash = await hashBlob(new Blob([await pdf.getData()], { type: 'application/pdf' }));
@@ -1696,7 +1632,10 @@ export function App() {
 
             const blob = new Blob([JSON.stringify(dataset)], { type: 'application/json' });
             download_file("results.json", blob);
-          }}>Export JSON</button>
+          }}>
+            <strong>Working dataset</strong>
+            <span>results.json · resume this scan later</span>
+          </button>
         </div>
       </div>
       <div class="row">
@@ -1792,7 +1731,7 @@ export function App() {
       </DiffInput>
       <DiffAnswers cfg={cfg} diffAnswers={diffAnswers} examResults={examResults} setExamResults={setExamResults} showActioned={cfg.showActioned} />
       {'results' in comparison ? <hr /> : <></>}
-      {cfg.showQuestionable ? <>
+      {cfg.showQuestionable && examResults.length > 0 ? <>
         <div class="row">
           <hr />
           <p class="display-6">
@@ -1992,16 +1931,9 @@ export function App() {
         <ExamAnalysis examResults={examResults} cfg={cfg} />
       </div>
 
-      {outURIs.length === 0 ? <></> :
-        <div>
-          <p>Debug Output:</p>
-          <ol>
-            {outURIs.map(outURI => <li><img src={outURI} style={{
-              borderWidth: "2px", borderStyle: "solid", borderColor: "#F0F"
-            }} /></li>)}
-          </ol>
-        </div>
-      }
+          </WorkspaceSection>
+        </main>
+      </div>
     </div>
-  )
+  );
 }
