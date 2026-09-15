@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createScannerClient } from '../src/scannerClient.mjs';
+import { createLazyScannerClient, createScannerClient } from '../src/scannerClient.mjs';
 
 class FakeWorker {
   constructor() {
@@ -59,4 +59,25 @@ test('scanner client reports responses with unknown request ids', () => {
   worker.onmessage({ data: { id: 999, answers: '' } });
 
   assert.deepEqual(diagnostics, ['Scanner worker returned an unknown request id: 999']);
+});
+
+test('lazy scanner client does not construct a worker until its first command', async () => {
+  const worker = new FakeWorker();
+  let factoryCalls = 0;
+  const client = createLazyScannerClient(() => {
+    factoryCalls++;
+    return worker;
+  });
+
+  client.subscribeToDiagnostics(() => {});
+  assert.equal(factoryCalls, 0);
+
+  const resultPromise = client.invoke('initialize');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(factoryCalls, 1);
+  assert.equal(worker.messages[0].message.cmd, 'initialize');
+
+  worker.onmessage({ data: { id: 1, ready: true } });
+  assert.equal((await resultPromise).ready, true);
+  assert.equal(factoryCalls, 1);
 });

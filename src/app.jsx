@@ -2,11 +2,9 @@ import { Fragment } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import 'pdfjs-dist/build/pdf.worker.mjs';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import JSZip from 'jszip';
 import { loadCSV, createCSV } from './util/csv.mjs';
 import { calculateScore, fixAnswers, normaliseStudentNum } from './examDomain.mjs';
-import { createScannerClient } from './scannerClient.mjs';
+import { createLazyScannerClient } from './scannerClient.mjs';
 import { ScanIssues } from './components/ScanIssues.jsx';
 import { ScannerConfig } from './components/ScannerConfig.jsx';
 import { ComparisonConfig } from './components/ComparisonConfig.jsx';
@@ -14,21 +12,16 @@ import { matchExamResultsToCanvas } from './services/canvasMatching.mjs';
 import { buildRawResultsCsvRows, buildResultsCsvRows } from './services/resultExports.mjs';
 import uploadMarks from './uploadMarks.txt?raw';
 
-const tasFormBuffer = fetch('./TAS request form and marker-1.pdf').then(res => res.arrayBuffer());
-
 const pdfjsWorker = new Worker(
   new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url), { type: 'module' }
 );
 GlobalWorkerOptions.workerPort = pdfjsWorker;
-const scannerWorker = new Worker(
+const scannerClient = createLazyScannerClient(() => new Worker(
   new URL('./scannerWorker.js', import.meta.url), { type: 'module' }
-);
-const scannerClient = createScannerClient(scannerWorker);
+));
 const invokeScanner = scannerClient.invoke;
 
 const range = (st, ed = null) => ed === null ? [...Array(st).keys()] : [...(Array(ed - st).keys().map(v => v + st))];
-
-let zip = null;
 
 function AnswerKey({ cfg, setCfg, pdf, currentlyScanning }) {
   const [exportPdfOpen, setExportPdfOpen] = useState(false);
@@ -105,7 +98,13 @@ function AnswerKey({ cfg, setCfg, pdf, currentlyScanning }) {
   }
 
   const exportPdf = async e => {
-    const buffer = await tasFormBuffer;
+    const [{ PDFDocument, rgb, StandardFonts }, buffer] = await Promise.all([
+      import('pdf-lib'),
+      fetch('./TAS request form and marker-1.pdf').then(res => {
+        if (!res.ok) throw new Error(`Could not load the TAS request form (${res.status}).`);
+        return res.arrayBuffer();
+      })
+    ]);
     const pdfDoc = await PDFDocument.load(buffer);
     const form = pdfDoc.getForm();
 
@@ -600,6 +599,7 @@ const trPoint = (x, y, height, homographies) => {
 }
 
 const createExamImage = async (cfg, result, pdf) => {
+  const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
   const pdfDoc = await PDFDocument.create();
   let srcDoc;
 
@@ -725,8 +725,9 @@ const DownloadPDFs = ({ examResults, cfg, pdf, assignment, canvasCSV, examResult
     <div class="row mb-2">
       <div class="col-12">
         <button class="btn btn-outline-primary w-100" onClick={async e => {
+          const { PDFDocument } = await import('pdf-lib');
           const seen_filenames = new Set();
-          const zip = create_zip('ExamPDFs.zip');
+          const zip = await create_zip('ExamPDFs.zip');
           const srcDoc = await PDFDocument.load(await pdf.getData());
           const grades = [];
           for (let i = 0; i < examResults.length; i++) {
@@ -1078,7 +1079,8 @@ const ExamResultsDisplay = ({ cfg, examResults, setExamResults, pdf }) => {
   );
 };
 
-const create_zip = (filename) => {
+const create_zip = async (filename) => {
+  const { default: JSZip } = await import('jszip');
   return {
     jszip: new JSZip(),
     count: 0,
@@ -1112,6 +1114,7 @@ export function App() {
   const [pdfName, setPdfName] = useState(null);
   const [pdfPage, setPdfPage] = useState(1);
   const [progress, setProgress] = useState(null); // null means not running
+  const [scanStage, setScanStage] = useState(null);
   const [examResults, setExamResults] = useState([]);
   const [previewURI, setPreviewURI] = useState(null);
   const [outURIs, setOutURIs] = useState([]);
@@ -1203,7 +1206,24 @@ export function App() {
     let resultIdx = 0;
 
     setProgress([0, newResults.length + (cfg.hasMarker ? 1 : 0)]);
+    setScanStage('Preparing recognition models');
     setExamResults([]);
+    try {
+      await invokeScanner('initialize');
+    } catch (error) {
+      reportScanIssue('Could not prepare scanner', error);
+      abortRef.current = null;
+      setProgress(null);
+      setScanStage(null);
+      return;
+    }
+    if (ac.signal.aborted) {
+      abortRef.current = null;
+      setProgress(null);
+      setScanStage(null);
+      return;
+    }
+    setScanStage('Matching loaded exams to the PDF');
     if (cfg.hasMarker) {
       const confirmation = window.confirm("Scan marker page?");
       if (confirmation) {
@@ -1244,6 +1264,7 @@ export function App() {
     }
     abortRef.current = null;
     setProgress(null);
+    setScanStage(null);
   };
 
   const rawCsvImport = async files => {
@@ -1322,8 +1343,26 @@ export function App() {
     const totalPages = endAt + 1 - startAt;
     const totalExams = Math.ceil(totalPages / pagesPerExam);
     setProgress([0, totalExams]);
+    setScanStage('Preparing recognition models');
     setExamResults([]);
     setScanIssues([]);
+
+    try {
+      await invokeScanner('initialize');
+    } catch (error) {
+      reportScanIssue('Could not prepare scanner', error);
+      abortRef.current = null;
+      setProgress(null);
+      setScanStage(null);
+      return;
+    }
+    if (ac.signal.aborted) {
+      abortRef.current = null;
+      setProgress(null);
+      setScanStage(null);
+      return;
+    }
+    setScanStage('Scanning exams');
 
     let answerKey = cfg.answerKey;
 
@@ -1404,6 +1443,7 @@ export function App() {
     // After all pages done
     abortRef.current = null;
     setProgress(null);
+    setScanStage(null);
   };
 
   const pdfSelected = async e => {
@@ -1525,7 +1565,7 @@ export function App() {
 
       <div class="row">
         {progress === null ? <></> :
-          <><div>Scanning exams... {progress[0]}/{progress[1]}</div>
+          <><div>{scanStage ?? 'Scanning exams'}... {progress[0]}/{progress[1]}</div>
             <div class="progress" role="progressbar" aria-label="Progress" aria-valuenow={progress[0] * 100 / progress[1]} aria-valuemin="0" aria-valuemax="100">
               <div class="progress-bar" style={{ width: `${progress[0] * 100 / progress[1]}%` }}>
               </div>

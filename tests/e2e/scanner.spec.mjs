@@ -8,13 +8,22 @@ const expectedUrl = new URL('../fixtures/scan_chappeta.expected.json', import.me
 const expected = JSON.parse(await readFile(expectedUrl, 'utf8'));
 
 test('scans the reviewed ten-page fixture without changing recognition output', async ({ page }) => {
+  const scannerWorkerRequests = [];
+  page.on('request', request => {
+    if (request.url().includes('scannerWorker')) scannerWorkerRequests.push(request.url());
+  });
+
   await page.goto('/');
+  await page.waitForLoadState('networkidle');
+  expect(scannerWorkerRequests).toEqual([]);
+
   await page.locator('input[type="file"]').first().setInputFiles(fixturePath);
 
   await expect(page.locator('#endAt')).toHaveValue(`${expected.scanConfiguration.endAt}`);
   const scanButton = page.locator('button').filter({ hasText: /^Scan Exams$/ });
   await scanButton.click();
   await expect(page.locator('button').filter({ hasText: /^Stop scanning$/ })).toBeVisible();
+  await expect.poll(() => scannerWorkerRequests.length).toBeGreaterThan(0);
   await expect(scanButton).toBeVisible({ timeout: 180_000 });
   await expect(page.locator('[role="alert"]')).toHaveCount(0);
 

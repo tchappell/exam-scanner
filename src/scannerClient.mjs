@@ -71,3 +71,47 @@ export function createScannerClient(worker) {
     }
   };
 }
+
+/**
+ * Delay construction of the heavyweight recognition worker until the first
+ * scanner command. Diagnostics can still be subscribed to before that point.
+ */
+export function createLazyScannerClient(workerFactory) {
+  let client = null;
+  let clientPromise = null;
+  const diagnosticListeners = new Set();
+
+  const notify = error => {
+    for (const listener of diagnosticListeners) listener(error);
+  };
+
+  const getClient = () => {
+    if (clientPromise === null) {
+      clientPromise = Promise.resolve()
+        .then(workerFactory)
+        .then(worker => {
+          client = createScannerClient(worker);
+          client.subscribeToDiagnostics(notify);
+          return client;
+        })
+        .catch(error => {
+          const failure = error instanceof Error ? error : new Error(`${error}`);
+          notify(failure);
+          throw failure;
+        });
+    }
+    return clientPromise;
+  };
+
+  return {
+    async invoke(command, data = {}, transferables = []) {
+      const scanner = client ?? await getClient();
+      return scanner.invoke(command, data, transferables);
+    },
+
+    subscribeToDiagnostics(listener) {
+      diagnosticListeners.add(listener);
+      return () => diagnosticListeners.delete(listener);
+    }
+  };
+}

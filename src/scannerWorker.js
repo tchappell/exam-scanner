@@ -70,6 +70,20 @@ const digitpredictPromise = loadPredict("../digit-detector.json");
 const num_mask_mat1Promise = loadImage("../num_mask_page1.png");
 const num_mask_mat2Promise = loadImage("../num_mask_page2.png");
 
+const initialize = async () => {
+  await Promise.all([
+    cvReadyPromise,
+    templateImagesPromise,
+    bubblepredictPromise,
+    abcdepredictPromise,
+    letterpredictPromise,
+    digitpredictPromise,
+    num_mask_mat1Promise,
+    num_mask_mat2Promise
+  ]);
+  return [{ ready: true }, []];
+};
+
 /*
   Hough circle lattice notes
 
@@ -1507,6 +1521,7 @@ const scan = async data => {
 onmessage = async e => {
   let func = null;
   switch (e.data.cmd) {
+    case "initialize": func = initialize; break;
     case "scan": func = scan; break;
     case "scan_matrix": func = scan_matrix; break;
   }
