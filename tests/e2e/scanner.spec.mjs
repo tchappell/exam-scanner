@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { PDFDocument } from 'pdf-lib';
 
 const fixtureUrl = new URL('../fixtures/scan_chappeta.pdf', import.meta.url);
 const fixturePath = fileURLToPath(fixtureUrl);
@@ -12,7 +13,7 @@ const twoSidedExpected = JSON.parse(await readFile(
   'utf8'
 ));
 
-test('scans the reviewed ten-page fixture without changing recognition output', async ({ page }) => {
+test('scans the reviewed ten-page fixture without changing recognition output', async ({ page }, testInfo) => {
   const scannerWorkerRequests = [];
   page.on('request', request => {
     if (request.url().includes('scannerWorker')) scannerWorkerRequests.push(request.url());
@@ -57,6 +58,18 @@ test('scans the reviewed ten-page fixture without changing recognition output', 
     scannedAnswer: row.dataset.scannedAnswer
   })));
   expect(questionable).toEqual(expected.questionable);
+
+  const downloadPromise = Promise.race([
+    page.waitForEvent('download', { timeout: 30_000 }),
+    page.waitForEvent('pageerror', { timeout: 30_000 }).then(error => Promise.reject(error))
+  ]);
+  await resultRows.first().getByRole('button', { name: `Download annotated PDF for page ${expected.results[0].page}` }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/\.pdf$/);
+  const annotatedPdfPath = testInfo.outputPath('annotated-exam.pdf');
+  await download.saveAs(annotatedPdfPath);
+  const annotatedPdf = await PDFDocument.load(await readFile(annotatedPdfPath));
+  expect(annotatedPdf.getPageCount()).toBe(1);
 });
 
 test('scans both sides of a 160-question answer sheet', async ({ page }) => {

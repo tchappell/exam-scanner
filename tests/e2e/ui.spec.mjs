@@ -24,3 +24,14 @@ test('reveals per-question multi-answer controls and updates the key summary', a
   await expect(page.locator('#ak_1_C')).toBeChecked();
   await expect(page.getByText('1 keyed')).toBeVisible();
 });
+
+test('opens the answer-sheet request form with finite defaults', async ({ page }) => {
+  await page.goto('/');
+
+  await page.getByRole('button', { name: 'Export PDF for exam scanning' }).click();
+
+  await expect(page.locator('#answer-key-request-form')).toBeVisible();
+  await expect(page.locator('#questionCount')).toHaveValue('0');
+  await expect(page.locator('#studentCount')).toHaveValue('1');
+  await expect(page.locator('#appendScans')).toBeDisabled();
+});

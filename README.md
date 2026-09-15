@@ -73,7 +73,8 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
 - `src/components/PdfSetupPanel.jsx`, `ScannerConfig.jsx`, and
   `ComparisonConfig.jsx` own the document-setup experience.
 - `src/components/AnswerKeyGrid.jsx` owns the responsive 40/160-question key,
-  including per-question multi-answer controls.
+  including per-question multi-answer controls; `AnswerKeyPanel.jsx` owns the
+  request-form fields and export interaction.
 - `src/components/ScanProgress.jsx` and `ScanIssues.jsx` present scanner status
   without owning scanner state.
 - `src/components/ExamResultsTable.jsx` owns result searching, paging, editing,
@@ -86,7 +87,9 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
 - `src/scannerClient.mjs` owns the request/response boundary to that worker.
 - `src/examDomain.mjs` contains small, testable scoring and normalization rules.
 - `src/services/` contains result-state updates, artifact naming, CSV result
-  formatting, comparison imports, and Canvas student matching.
+  formatting, comparison imports, Canvas student matching, and PDF artifact
+  generation. `pdfArtifacts.mjs` is the single boundary for request/marker PDFs
+  and annotated student exams.
 - `src/util/csv.mjs` owns standards-compliant CSV parsing and generation;
   `src/util/downloads.mjs` centralizes browser file and ZIP downloads.
 - `tools/trainer-legacy/` preserves classifier-training experiments that are not
