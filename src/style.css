@@ -857,6 +857,488 @@ select {
   font-size: 0.74rem;
 }
 
+.subsection-header,
+.review-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.subsection-header__eyebrow,
+.review-panel__eyebrow {
+  margin: 0 0 3px;
+  color: var(--brand);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.subsection-header h3,
+.review-panel__header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 750;
+}
+
+.results-exchange,
+.canvas-transfer,
+.review-panel,
+.exam-analysis {
+  padding: 22px 0;
+}
+
+.results-exchange {
+  padding-top: 0;
+}
+
+.results-exchange + .review-panel,
+.review-panel + .review-panel,
+.review-panel + .canvas-transfer,
+.results-exchange + .canvas-transfer,
+.canvas-transfer + .exam-analysis {
+  border-top: 1px solid var(--line);
+}
+
+.import-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.import-card {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: start;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--soft);
+}
+
+.import-card strong {
+  font-size: 0.85rem;
+}
+
+.import-card p,
+.canvas-upload p,
+.canvas-pdf-export > p,
+.canvas-matches > p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.import-card__controls {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: end;
+  gap: 10px;
+}
+
+.review-panel__header {
+  margin-top: 4px;
+}
+
+.review-toggle {
+  display: flex;
+  cursor: pointer;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.review-panel__empty {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px dashed #cbd5e5;
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--soft);
+  font-size: 0.82rem;
+}
+
+.review-group + .review-group {
+  margin-top: 20px;
+}
+
+.review-group h4 {
+  margin: 0 0 9px;
+  color: #44506a;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.review-item {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.65fr) minmax(280px, 1.35fr);
+  min-height: 120px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+}
+
+.review-item + .review-item {
+  margin-top: 8px;
+}
+
+.review-item.is-actioned {
+  border-color: #93d5c5;
+  background: #f3fbf8;
+}
+
+.review-item__image {
+  display: grid;
+  min-height: 110px;
+  place-items: center;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+  background: #e8ecf2;
+}
+
+.review-item__image img {
+  width: 100%;
+  max-height: 170px;
+  object-fit: contain;
+}
+
+.review-item__body {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  padding: 16px;
+}
+
+.review-item__location,
+.review-item__meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.review-item__location {
+  color: var(--ink);
+  font-weight: 750;
+}
+
+.review-comparison-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.3fr;
+  align-items: end;
+  gap: 10px;
+}
+
+.review-comparison-values button {
+  display: grid;
+  gap: 2px;
+}
+
+.review-comparison-values button span {
+  font-size: 0.64rem;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+.review-sort {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.review-sort span {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.review-sort button,
+.table-sort,
+.results-pagination button {
+  border: 0;
+  color: #53617a;
+  background: transparent;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.review-sort button:hover,
+.table-sort:hover,
+.results-pagination button:hover:not(:disabled) {
+  color: var(--brand);
+}
+
+.results-table {
+  min-width: 0;
+}
+
+.results-toolbar,
+.results-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 0 2px 14px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.results-toolbar > label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.results-toolbar select,
+.results-search input {
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid #cfd7e5;
+  border-radius: 7px;
+  background: white;
+}
+
+.results-search {
+  display: flex;
+  gap: 7px;
+}
+
+.results-search input {
+  width: min(320px, 45vw);
+}
+
+.results-table__scroll {
+  max-width: 100%;
+  padding: 0 8px 8px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+}
+
+.table-sort {
+  height: 100%;
+  padding: 7px 3px;
+  text-align: left;
+}
+
+.result-pdf-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: white;
+  background: #bd3650;
+  font-size: 0.48rem;
+  font-weight: 850;
+}
+
+.results-footer {
+  padding: 12px 2px 0;
+}
+
+.results-pagination {
+  display: flex;
+  gap: 3px;
+}
+
+.results-pagination button {
+  min-width: 30px;
+  min-height: 30px;
+  border-radius: 6px;
+}
+
+.results-pagination button.is-current {
+  color: white;
+  background: var(--brand);
+}
+
+.results-pagination button:disabled {
+  opacity: 0.35;
+}
+
+.canvas-upload {
+  display: grid;
+  grid-template-columns: 1fr minmax(280px, 0.8fr);
+  align-items: center;
+  gap: 20px;
+  padding: 18px;
+  border: 1px dashed #cbd5e5;
+  border-radius: 12px;
+  background: var(--soft);
+}
+
+.canvas-summary,
+.analysis-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.canvas-summary > div,
+.analysis-summary > div {
+  display: grid;
+  gap: 2px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+}
+
+.canvas-summary strong,
+.analysis-summary strong {
+  font-size: 1.3rem;
+}
+
+.canvas-summary span,
+.analysis-summary span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.canvas-matches {
+  margin: 18px 0;
+}
+
+.canvas-matches__columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-height: 340px;
+  margin-top: 12px;
+  overflow: auto;
+}
+
+.canvas-matches h4,
+.canvas-pdf-export h4 {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.canvas-match-card {
+  display: grid;
+  width: 100%;
+  grid-template-columns: auto 1fr;
+  gap: 3px 9px;
+  margin-bottom: 6px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  text-align: left;
+  background: white;
+  font-size: 0.78rem;
+}
+
+.canvas-match-card.is-selected {
+  border-color: var(--brand);
+  background: #f1f4ff;
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+
+.canvas-match-card__side {
+  grid-row: span 2;
+  color: var(--brand);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.canvas-match-card small {
+  color: var(--muted);
+}
+
+.canvas-assignment {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--soft);
+}
+
+.canvas-assignment .field-group:first-child {
+  min-width: 260px;
+  flex: 1;
+}
+
+.canvas-assignment__summary {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.canvas-pdf-export {
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.canvas-pdf-export__fields {
+  display: grid;
+  grid-template-columns: 1.5fr 0.5fr;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.exam-analysis summary {
+  display: flex;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 17px 0 0;
+  font-weight: 750;
+  list-style: none;
+}
+
+.exam-analysis summary span:first-child {
+  display: grid;
+}
+
+.exam-analysis summary small {
+  color: var(--brand);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.exam-analysis summary span:last-child {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.exam-analysis__body {
+  padding-top: 18px;
+}
+
+.analysis-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.analysis-table-wrap {
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
 .workspace-section hr {
   border-color: var(--line);
   opacity: 1;
@@ -932,7 +1414,12 @@ select {
 
   .setup-toggle-grid,
   .comparison-config,
-  .export-grid {
+  .export-grid,
+  .import-grid,
+  .import-card,
+  .import-card__controls,
+  .canvas-upload,
+  .canvas-matches__columns {
     grid-template-columns: 1fr;
   }
 
@@ -958,6 +1445,32 @@ select {
   }
 
   .scan-action-panel__button {
+    width: 100%;
+  }
+
+  .review-item,
+  .review-comparison-values,
+  .canvas-pdf-export__fields {
+    grid-template-columns: 1fr;
+  }
+
+  .review-item__image {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .canvas-assignment {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .results-toolbar,
+  .results-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .results-search input {
     width: 100%;
   }
 }

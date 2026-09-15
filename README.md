@@ -66,9 +66,8 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
 
 ## Current architecture
 
-- `src/app.jsx` coordinates application state, scanning, review, and import/export
-  workflows. Large workflow areas are being extracted without changing the
-  recognition pipeline.
+- `src/app.jsx` coordinates scanner state and the four-step workflow without
+  owning the presentation details of results, review, analysis, or exports.
 - `src/components/WorkspaceSection.jsx` provides the application shell, workflow
   navigation, numbered sections, and empty states.
 - `src/components/PdfSetupPanel.jsx`, `ScannerConfig.jsx`, and
@@ -77,12 +76,19 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
   including per-question multi-answer controls.
 - `src/components/ScanProgress.jsx` and `ScanIssues.jsx` present scanner status
   without owning scanner state.
+- `src/components/ExamResultsTable.jsx` owns result searching, paging, editing,
+  and annotated-PDF actions; `ReviewPanels.jsx` owns comparison and uncertain-mark
+  review queues.
+- `src/components/ResultsFileExchange.jsx` owns CSV/JSON import and export,
+  `CanvasTransfer.jsx` owns Canvas matching and transfer preparation, and
+  `ExamAnalysis.jsx` owns item statistics.
 - `src/scannerWorker.js` contains the OpenCV/TensorFlow recognition pipeline.
 - `src/scannerClient.mjs` owns the request/response boundary to that worker.
 - `src/examDomain.mjs` contains small, testable scoring and normalization rules.
-- `src/services/` contains CSV result formatting, comparison imports, and Canvas
-  student matching.
-- `src/util/csv.mjs` owns standards-compliant CSV parsing and generation.
+- `src/services/` contains result-state updates, artifact naming, CSV result
+  formatting, comparison imports, and Canvas student matching.
+- `src/util/csv.mjs` owns standards-compliant CSV parsing and generation;
+  `src/util/downloads.mjs` centralizes browser file and ZIP downloads.
 - `tools/trainer-legacy/` preserves classifier-training experiments that are not
   part of the production application.
 
