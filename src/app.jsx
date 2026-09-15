@@ -1,12 +1,6 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import 'pdfjs-dist/build/pdf.worker.mjs';
+import { useEffect, useState } from 'preact/hooks';
 import { loadCSV } from './util/csv.mjs';
-import {
-  createAnswerKey,
-  fixAnswers,
-  normaliseAnswer
-} from './examDomain.mjs';
+import { normaliseAnswer } from './examDomain.mjs';
 import { createLazyScannerClient } from './scannerClient.mjs';
 import { ScanIssues } from './components/ScanIssues.jsx';
 import { ScannerConfig } from './components/ScannerConfig.jsx';
@@ -22,31 +16,21 @@ import { CanvasTransfer } from './components/CanvasTransfer.jsx';
 import { ExamAnalysis } from './components/ExamAnalysis.jsx';
 import { examResultFilename } from './services/examArtifacts.mjs';
 import { createAnnotatedExamPdf } from './services/pdfArtifacts.mjs';
+import { loadBrowserPdf, renderPdfPagePreview } from './services/browserPdfAdapter.mjs';
+import { useScanWorkflow } from './hooks/useScanWorkflow.mjs';
 import { downloadFile } from './util/downloads.mjs';
 
-const pdfjsWorker = new Worker(
-  new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url), { type: 'module' }
-);
-GlobalWorkerOptions.workerPort = pdfjsWorker;
 const scannerClient = createLazyScannerClient(() => new Worker(
   new URL('./scannerWorker.js', import.meta.url), { type: 'module' }
 ));
-const invokeScanner = scannerClient.invoke;
 
 export function App() {
   const [pdf, setPdf] = useState(null);
   const [pdfName, setPdfName] = useState(null);
   const [pdfPage, setPdfPage] = useState(1);
-  const [progress, setProgress] = useState(null); // null means not running
-  const [scanStage, setScanStage] = useState(null);
-  const [examResults, setExamResults] = useState([]);
   const [previewURI, setPreviewURI] = useState(null);
   const [comparison, setComparison] = useState({});
   const [importCSVPage1, setImportCSVPage1] = useState(1);
-  const [scanIssues, setScanIssues] = useState([]);
-
-  //const [cv, setCv] = useState(null);
-  //const [templateImages, setTemplateImages] = useState([]);
   const [cfg, setCfg] = useState({
     startAt: 1,
     endAt: 1,
@@ -59,114 +43,24 @@ export function App() {
     showQActioned: true,
     showActioned: true
   });
-  const abortRef = useRef(null);
-
-  const currentlyScanning = progress !== null;
-  const activeMultiAnswerQuestions = cfg.hasMultiAnswer
-    ? Object.keys(cfg.multiAnswerQuestions ?? {}).filter(question => cfg.multiAnswerQuestions[question]).map(Number)
-    : [];
-
-  const reportScanIssue = (stage, error, page = null) => {
-    const message = error instanceof Error ? error.message : `${error}`;
-    console.error(`${stage}${page === null ? '' : ` (page ${page})`}:`, error);
-    setScanIssues(previous => [
-      ...previous,
-      { stage, page, message }
-    ]);
-  };
-
-  useEffect(() => scannerClient.subscribeToDiagnostics(error => {
-    reportScanIssue('Scanner worker', error);
-  }), []);
-
-
-
-  const getPdfPage = async (currentPage) => {
-    const page = await pdf.getPage(currentPage);
-    const viewport = page.getViewport({ scale: 4 });
-    const canvas = new OffscreenCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-    let ctx = canvas.getContext('2d', { willReadFrequently: true });
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    const bmp = createImageBitmap(canvas);
-    page.cleanup();
-    return bmp;
-  };
-
-  const matchLoadedExamsToPDF = async newResults => {
-    if (abortRef.current !== null) {
-      abortRef.current.abort();
-      return;
-    }
-
-    const ac = new AbortController();
-    abortRef.current = ac;
-    let resultIdx = 0;
-
-    setProgress([0, newResults.length + (cfg.hasMarker ? 1 : 0)]);
-    setScanStage('Preparing recognition models');
-    setExamResults([]);
-    try {
-      await invokeScanner('initialize');
-    } catch (error) {
-      reportScanIssue('Could not prepare scanner', error);
-      abortRef.current = null;
-      setProgress(null);
-      setScanStage(null);
-      return;
-    }
-    if (ac.signal.aborted) {
-      abortRef.current = null;
-      setProgress(null);
-      setScanStage(null);
-      return;
-    }
-    setScanStage('Matching loaded exams to the PDF');
-    if (cfg.hasMarker) {
-      const confirmation = window.confirm("Scan marker page?");
-      if (confirmation) {
-        let bmp = await getPdfPage(cfg.startAt);
-        
-        const data = await invokeScanner("scan", {
-          bmp,
-          page: 0,
-          compare: {},
-          multiAnswerQuestions: activeMultiAnswerQuestions
-        }, [bmp]);
-        let answers = data.answer_values ?? data.answers.split('');
-        if (cfg.twoSided) {
-          bmp = await getPdfPage(cfg.startAt + 1);
-          const data = await invokeScanner("scan", {
-            bmp,
-            page: 1,
-            compare: {},
-            multiAnswerQuestions: activeMultiAnswerQuestions
-          }, [bmp]);
-          answers = answers.concat(data.answer_values2 ?? data.answers2.split(''));
-        }
-        const answerKey = createAnswerKey(answers);
-        setCfg(cfg => ({ ...cfg, answerKey }));
-      }
-      setProgress([1, newResults.length + 1]);
-    }
-    while (!ac.signal.aborted) {
-      let currentPage = newResults[resultIdx].page;
-      let bmp = await getPdfPage(currentPage);
-      const data = await invokeScanner("scan_matrix", { bmp, page: 0 }, [bmp]);
-      let result = {...newResults[resultIdx], homographies: data.homographies};
-      if (cfg.twoSided) {
-        bmp = await getPdfPage(currentPage + 1);
-        const data = await invokeScanner("scan_matrix", { bmp, page: 1 }, [bmp]);
-        result.homographies2 = data.homographies;
-      }
-      setExamResults(examResults => [...examResults, result]);
-      resultIdx++;
-      setProgress([resultIdx + (cfg.hasMarker ? 1 : 0), newResults.length + (cfg.hasMarker ? 1 : 0)]);
-      if (resultIdx === newResults.length) break;
-    }
-    abortRef.current = null;
-    setProgress(null);
-    setScanStage(null);
-  };
+  const {
+    progress,
+    stage: scanStage,
+    results: examResults,
+    setResults: setExamResults,
+    issues: scanIssues,
+    clearIssues: clearScanIssues,
+    reportIssue: reportScanIssue,
+    currentlyScanning,
+    scanExams,
+    matchLoadedExamsToPdf
+  } = useScanWorkflow({
+    pdf,
+    config: cfg,
+    setConfig: setCfg,
+    comparison,
+    scannerClient
+  });
 
   const rawCsvImport = async files => {
     if (examResults.length > 0) {
@@ -216,154 +110,23 @@ export function App() {
       if (!doScan) {
         setExamResults(newResults);
       } else {
-        await matchLoadedExamsToPDF(newResults);
+        await matchLoadedExamsToPdf(newResults);
       }
     } else {
       window.alert("Invalid headings; this is not a raw_results format CSV.")
     }
   };
 
-  const scanExams = async e => {
-    if (abortRef.current !== null) {
-      abortRef.current.abort();
-      return;
-    }
-    if (cfg.endAt < cfg.startAt) return;
-    if (examResults.length > 0) {
-      const confirmation = window.confirm("This will erase current exam scans. Are you sure?");
-      if (!confirmation) return;
-    }
-
-    const { startAt, endAt, twoSided } = cfg;
-
-    const ac = new AbortController();
-    abortRef.current = ac;
-    let currentPage = startAt;
-
-    const pagesPerExam = twoSided ? 2 : 1;
-    const totalPages = endAt + 1 - startAt;
-    const totalExams = Math.ceil(totalPages / pagesPerExam);
-    setProgress([0, totalExams]);
-    setScanStage('Preparing recognition models');
-    setExamResults([]);
-    setScanIssues([]);
-
-    try {
-      await invokeScanner('initialize');
-    } catch (error) {
-      reportScanIssue('Could not prepare scanner', error);
-      abortRef.current = null;
-      setProgress(null);
-      setScanStage(null);
-      return;
-    }
-    if (ac.signal.aborted) {
-      abortRef.current = null;
-      setProgress(null);
-      setScanStage(null);
-      return;
-    }
-    setScanStage('Scanning exams');
-
-    let answerKey = cfg.answerKey;
-
-
-    while (!ac.signal.aborted) {
-      try {
-        let bmp = await getPdfPage(currentPage);
-        let compare = {};
-        if ('results' in comparison) {
-          const pageOffset = (1 - comparison.cfg_firstPage);
-          const result = comparison.results.get(currentPage + pageOffset);
-          if (result !== undefined) {
-            if (comparison.cfg_checkNumbers) compare.studentNum = result.studentNum;
-            if (comparison.cfg_checkName) compare.surname = result.surname;
-            if (comparison.cfg_checkInitials) compare.initial = result.initial;
-            if (comparison.cfg_checkAnswers) compare.q = result.q;
-          }
-        }
-
-        const result = await invokeScanner("scan", {
-          bmp,
-          page: 0,
-          compare,
-          multiAnswerQuestions: activeMultiAnswerQuestions
-        }, [bmp]);
-        //console.log(result);
-
-        let { raw_answers, student_number, raw_student_number, surname, raw_surname, initials, raw_initials, diffs, homographies } = result;
-        let answers = result.answer_values ?? result.answers.split('');
-        let homographies2 = [];
-
-        if (cfg.twoSided && currentPage + 1 <= endAt) {
-          bmp = await getPdfPage(currentPage + 1);
-          const result = await invokeScanner("scan", {
-            bmp,
-            page: 1,
-            compare,
-            multiAnswerQuestions: activeMultiAnswerQuestions
-          }, [bmp]);
-          //console.log(result);
-          let { raw_answers2 } = result;
-          const answers2 = result.answer_values2 ?? result.answers2.split('');
-          homographies2 = result.homographies;
-          diffs = diffs.concat(result.diffs);
-          answers = answers.concat(Array(40).fill(' ')).slice(0, 40);
-          answers = answers.concat(answers2);
-          raw_answers = raw_answers.concat(raw_answers2);
-        }
-
-        // Is this the marker page
-        if (cfg.hasMarker && currentPage === startAt) {
-          // Do not store, but instead make this the new answer key
-          answerKey = createAnswerKey(answers);
-          setCfg(cfg => ({ ...cfg, answerKey }));
-        } else {
-          const new_result = {
-            page: currentPage,
-            student_number,
-            surname,
-            initials,
-            answers: fixAnswers(cfg, answers),
-            raw_student_number, raw_surname, raw_initials, raw_answers: raw_answers.map((ra, i) => ({ ...ra, scanned_value: answers[i] })),
-            diffs,
-            homographies,
-            homographies2
-          };
-          setExamResults(prev => [
-            ...prev,
-            new_result
-          ]);
-        }
-      } catch (e) {
-        reportScanIssue('Could not scan exam', e, currentPage);
-        // Preserve the existing behaviour: report the failure and continue with
-        // the next exam instead of discarding all successfully scanned pages.
-      }
-
-      // Onto next page
-      currentPage += pagesPerExam;
-      if (currentPage > endAt) break;
-
-      setProgress([Math.ceil((currentPage - startAt) / pagesPerExam), totalExams]);
-    }
-    // After all pages done
-    abortRef.current = null;
-    setProgress(null);
-    setScanStage(null);
-  };
-
   const pdfSelected = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const data = new Uint8Array(await file.arrayBuffer());
-      const pdf = await getDocument({ data }).promise;
+      const pdf = await loadBrowserPdf(file);
       setPdfName(file.name);
       setPdf(pdf);
       setPdfPage(1);
       setCfg(cfg => ({ ...cfg, endAt: pdf.numPages }));
-      setScanIssues([]);
+      clearScanIssues();
     } catch (error) {
       reportScanIssue('Could not open PDF', error);
     }
@@ -385,29 +148,36 @@ export function App() {
         return examResultsCopy;
       });
     }
-    setPreviewURI(null);
     setPdfName(null);
     setPdf(null);
   };
 
   // Update preview URI
-  useEffect(async () => {
-    if (pdf === null) return;
+  useEffect(() => {
+    let cancelled = false;
+    let previewUrl = null;
 
-    const page = await pdf.getPage(pdfPage);
-    const viewport = page.getViewport({ scale: 1 });
-    const canvas = new OffscreenCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (pdf === null) {
+      setPreviewURI(null);
+      return undefined;
+    }
 
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    const blob = await canvas.convertToBlob({ type: 'image/png' });
-    const url = URL.createObjectURL(blob);
-    setPreviewURI(prev => {
-      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-      return url;
-    });
+    setPreviewURI(null);
+    renderPdfPagePreview(pdf, pdfPage)
+      .then(blob => {
+        if (cancelled) return;
+        previewUrl = URL.createObjectURL(blob);
+        setPreviewURI(previewUrl);
+      })
+      .catch(error => {
+        if (!cancelled) reportScanIssue('Could not render PDF preview', error, pdfPage);
+      });
 
-  }, [pdf, pdfPage]);
+    return () => {
+      cancelled = true;
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [pdf, pdfPage, reportScanIssue]);
 
   const prevPage = () => {
     if (pdfPage === 1) setPdfPage(pdf.numPages);
@@ -481,7 +251,7 @@ export function App() {
           </div>
 
           <ScanProgress progress={progress} stage={scanStage} />
-          <ScanIssues issues={scanIssues} onDismiss={() => setScanIssues([])} />
+          <ScanIssues issues={scanIssues} onDismiss={clearScanIssues} />
 
           <WorkspaceSection
             id="results"

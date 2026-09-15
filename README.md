@@ -85,6 +85,13 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
   `ExamAnalysis.jsx` owns item statistics.
 - `src/scannerWorker.js` contains the OpenCV/TensorFlow recognition pipeline.
 - `src/scannerClient.mjs` owns the request/response boundary to that worker.
+- `src/services/scanWorkflow.mjs` owns platform-neutral page sequencing, marker
+  handling, two-sided result assembly, cancellation, and progress events.
+- `src/services/browserScannerAdapter.mjs` and `browserPdfAdapter.mjs` translate
+  that workflow into PDF.js, `ImageBitmap`, and Web Worker operations. A future
+  Node or Tauri-native adapter can implement the same scanner operations.
+- `src/hooks/useScanWorkflow.mjs` connects the neutral workflow to Preact state
+  without putting recognition loops back into `app.jsx`.
 - `src/examDomain.mjs` contains small, testable scoring and normalization rules.
 - `src/services/` contains result-state updates, artifact naming, CSV result
   formatting, comparison imports, Canvas student matching, and PDF artifact
