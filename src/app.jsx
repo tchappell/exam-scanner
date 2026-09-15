@@ -7,7 +7,11 @@ import JSZip from 'jszip';
 import { loadCSV, createCSV } from './util/csv.mjs';
 import { calculateScore, fixAnswers, normaliseStudentNum } from './examDomain.mjs';
 import { createScannerClient } from './scannerClient.mjs';
-import { get as levenshtein } from 'fast-levenshtein';
+import { ScanIssues } from './components/ScanIssues.jsx';
+import { ScannerConfig } from './components/ScannerConfig.jsx';
+import { ComparisonConfig } from './components/ComparisonConfig.jsx';
+import { matchExamResultsToCanvas } from './services/canvasMatching.mjs';
+import { buildRawResultsCsvRows, buildResultsCsvRows } from './services/resultExports.mjs';
 import uploadMarks from './uploadMarks.txt?raw';
 
 const tasFormBuffer = fetch('./TAS request form and marker-1.pdf').then(res => res.arrayBuffer());
@@ -25,215 +29,6 @@ const invokeScanner = scannerClient.invoke;
 const range = (st, ed = null) => ed === null ? [...Array(st).keys()] : [...(Array(ed - st).keys().map(v => v + st))];
 
 let zip = null;
-
-function ScannerConfig({ cfg, setCfg, pdf, currentlyScanning }) {
-
-  return (
-    <>
-      <div>
-        <p class="text-center fw-bold">Configuration</p>
-      </div>
-      <div style={{ "text-align": "left" }}>
-        <div>
-          <label htmlFor="startAt">Start at page:&nbsp;</label>
-          <input
-            autocomplete="off"
-            id="startAt"
-            name="startAt"
-            type="number"
-            min={1}
-            max={pdf ? pdf.numPages : undefined}
-            step={1}
-            disabled={currentlyScanning}
-            value={cfg.startAt}
-            onChange={e => {
-              const value = Number.parseInt(e.target.value);
-              setCfg(cfg => ({ ...cfg, startAt: value }));
-            }
-            }
-          />
-        </div>
-        <div>
-          <label htmlFor="endAt">End at page:&nbsp;</label>
-          <input
-            autocomplete="off"
-            id="endAt"
-            name="endAt"
-            type="number"
-            min={1}
-            max={pdf ? pdf.numPages : undefined}
-            step={1}
-            value={cfg.endAt}
-            disabled={currentlyScanning}
-            onChange={e => {
-              const value = Number.parseInt(e.target.value);
-              setCfg(cfg => ({ ...cfg, endAt: value }));
-            }
-            }
-          />
-        </div>
-        <div>
-          <label htmlFor="twoSided" class="form-check-label">Two-sided?&nbsp;</label>
-          <input
-            autocomplete="off"
-            id="twoSided"
-            name="twoSided"
-            type="checkbox"
-            class="form-check-input"
-            disabled={currentlyScanning}
-            checked={cfg.twoSided}
-            onChange={e => setCfg(cfg => ({ ...cfg, twoSided: e.target.checked }))}
-          />
-        </div>
-        <div>
-          <label htmlFor="hasMarker" class="form-check-label">Has marker sheet?&nbsp;</label>
-          <input
-            autocomplete="off"
-            id="hasMarker"
-            name="hasMarker"
-            type="checkbox"
-            class="form-check-input"
-            disabled={currentlyScanning}
-            checked={cfg.hasMarker}
-            onChange={e => setCfg(cfg => ({ ...cfg, hasMarker: e.target.checked }))}
-          />
-        </div>
-        <div>
-          <label htmlFor="showQuestionable" class="form-check-label">List questionable scans?&nbsp;</label>
-          <input
-            autocomplete="off"
-            id="showQuestionable"
-            name="showQuestionable"
-            type="checkbox"
-            class="form-check-input"
-            disabled={currentlyScanning}
-            checked={cfg.showQuestionable}
-            onChange={e => setCfg(cfg => ({ ...cfg, showQuestionable: e.target.checked }))}
-          />
-        </div>
-      </div>
-    </>
-  );
-}
-
-function ComparisonConfig({ comparison, setComparison, cfg, currentlyScanning }) {
-  const csvSelected = async e => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const rows = (await file.text()).split('\n').map(row => row.split(','));
-    if (rows[0].length !== 167) {
-      setComparison({ error: "This is not a valid ACSPRI raw results file (must have 167 columns)" })
-      return;
-    }
-    const filename = file.name;
-
-    const results = new Map();
-    for (const row of rows.slice(1)) {
-      const [unit, examDate, studentNum, surname, initial, scannedFile, pageInFile, ...q] = row;
-      const pageNum = Number.parseInt(pageInFile);
-      results.set(pageNum, { studentNum, surname, initial, q });
-    }
-
-    const c = {
-      cfg_checkNumbers: true,
-      cfg_checkName: false,
-      cfg_checkInitials: false,
-      cfg_checkAnswers: true
-    };
-
-    for (const k of Object.keys(c)) {
-      if (k in comparison) c[k] = comparison[k];
-    }
-    c.cfg_firstPage = cfg.startAt + (cfg.hasMarker ? 1 : 0);
-
-    setComparison({
-      results,
-      filename,
-      ...c
-    });
-  };
-
-  return (<div class="card px-2">
-    <label htmlFor="comparisonFileUpload">Submit raw_results.csv for comparison</label>
-    {'filename' in comparison ?
-      <button class="btn btn-secondary" onClick={e => !currentlyScanning ? setComparison({}) : null} disabled={currentlyScanning}>Remove {comparison.filename}</button>
-      :
-      <input type="file" accept="text/csv" onChange={csvSelected} disabled={currentlyScanning} class="btn" id="comparisonFileUpload" />}
-    {'error' in comparison ? <p class="text-danger">{comparison.error}</p> : <></>}
-    {'results' in comparison ? <>
-      <div>
-        <label htmlFor="cfg_checkNumbers" class="form-check-label">Check student numbers&nbsp;</label>
-        <input
-          autocomplete="off"
-          id="cfg_checkNumbers"
-          name="cfg_checkNumbers"
-          type="checkbox"
-          class="form-check-input"
-          disabled={currentlyScanning}
-          checked={comparison.cfg_checkNumbers}
-          onChange={e => setComparison(c => ({ ...c, cfg_checkNumbers: e.target.checked }))}
-        />
-      </div>
-      <div>
-        <label htmlFor="cfg_checkName" class="form-check-label">Check surnames&nbsp;</label>
-        <input
-          autocomplete="off"
-          id="cfg_checkName"
-          name="cfg_checkName"
-          type="checkbox"
-          class="form-check-input"
-          disabled={currentlyScanning}
-          checked={comparison.cfg_checkName}
-          onChange={e => setComparison(c => ({ ...c, cfg_checkName: e.target.checked }))}
-        />
-      </div>
-      <div>
-        <label htmlFor="cfg_checkInitials" class="form-check-label">Check initials&nbsp;</label>
-        <input
-          autocomplete="off"
-          id="cfg_checkInitials"
-          name="cfg_checkInitials"
-          type="checkbox"
-          class="form-check-input"
-          disabled={currentlyScanning}
-          checked={comparison.cfg_checkInitials}
-          onChange={e => setComparison(c => ({ ...c, cfg_checkInitials: e.target.checked }))}
-        />
-      </div>
-      <div>
-        <label htmlFor="cfg_checkAnswers" class="form-check-label">Check answers&nbsp;</label>
-        <input
-          autocomplete="off"
-          id="cfg_checkAnswers"
-          name="cfg_checkAnswers"
-          type="checkbox"
-          class="form-check-input"
-          disabled={currentlyScanning}
-          checked={comparison.cfg_checkAnswers}
-          onChange={e => setComparison(c => ({ ...c, cfg_checkAnswers: e.target.checked }))}
-        />
-      </div>
-      <div>
-        <label htmlFor="cfg_firstPage">PDF page corresponding to page 1 in CSV:&nbsp;</label>
-        <input
-          autocomplete="off"
-          id="cfg_firstPage"
-          name="cfg_firstPage"
-          type="number"
-          min={1}
-          step={1}
-          disabled={currentlyScanning}
-          value={comparison.cfg_firstPage}
-          onChange={e => {
-            const value = Number.parseInt(e.target.value);
-            setComparison(c => ({ ...c, cfg_firstPage: value }));
-          }
-          }
-        />
-      </div>
-    </> : <></>}
-  </div>);
-}
 
 function AnswerKey({ cfg, setCfg, pdf, currentlyScanning }) {
   const [exportPdfOpen, setExportPdfOpen] = useState(false);
@@ -685,7 +480,14 @@ const QuestionableEntry = ({ idx, q, img, examResults, setExamResults, showActio
   const [actioned, setActioned] = useState(false);
   if (actioned && !showActioned) return <></>;
 
-  return (<div class={`row ${actioned ? 'bg-primary-subtle border border-primary-subtle border-2' : 'bg-light border border-light-subtle border-2'}`} key={`${idx} ${q}`}>
+  return (<div
+    class={`row ${actioned ? 'bg-primary-subtle border border-primary-subtle border-2' : 'bg-light border border-light-subtle border-2'}`}
+    data-testid="questionable-result"
+    data-page={examResults[idx].page}
+    data-question={q + 1}
+    data-scanned-answer={examResults[idx].raw_answers[q].scanned_value}
+    key={`${idx} ${q}`}
+  >
     <div class="col-sm-3 p-0">
       <div class="w-100">
         <img src={img} class="img-fluid w-100" style={{
@@ -1102,24 +904,24 @@ const ExamAnalysis = ({ examResults, cfg }) => {
 };
 
 const examResultsRow = (cfg, setExamResults, pdf) => ((result, i) => (
-  <div class="exam-row" style={{ "--qcount": cfg.twoSided ? 160 : 40 }} key={result.page}>
+  <div class="exam-row" data-testid="exam-result" data-page={result.page} style={{ "--qcount": cfg.twoSided ? 160 : 40 }} key={result.page}>
     {'homographies' in result ? (<div class="fs-5 text-success btn btn-sm p-0" onClick={async e => {
       const blob = await createExamImage(cfg, result, pdf);
       download_file(examResultFilename(result) + '.pdf', blob);
     }}>🗎</div>) : <div>&nbsp;</div>}
     <div class="text-end pe-1">{result.page}</div>
-    <div><input autocomplete="off" type="text" value={result.student_number} class="w-100" onChange={
+    <div><input autocomplete="off" type="text" data-field="student-number" value={result.student_number} class="w-100" onChange={
       e => setResultFields(setExamResults, i, { student_number: e.target.value })
     } /></div>
-    <div><input autocomplete="off" type="text" value={result.surname} class="w-100" style={{ textTransform: "uppercase" }} onChange={
+    <div><input autocomplete="off" type="text" data-field="surname" value={result.surname} class="w-100" style={{ textTransform: "uppercase" }} onChange={
       e => setResultFields(setExamResults, i, { surname: e.target.value })
     } /></div>
-    <div><input autocomplete="off" type="text" value={result.initials} class="w-100" style={{ textTransform: "uppercase" }} onChange={
+    <div><input autocomplete="off" type="text" data-field="initials" value={result.initials} class="w-100" style={{ textTransform: "uppercase" }} onChange={
       e => setResultFields(setExamResults, i, { initials: e.target.value })
     } /></div>
     <div class="ps-2">{calculateScore(result.answers, cfg.answerKey)}</div>
     {fixAnswers(cfg, result.answers).map(
-      (ans, j) => <div key={j}><select class="w-100"
+      (ans, j) => <div key={j}><select class="w-100" data-question={j + 1}
         value={ans}
         onChange={
           e => setResultFields(setExamResults, i, prev => ({
@@ -1357,112 +1159,11 @@ export function App() {
     reportScanIssue('Scanner worker', error);
   }), []);
 
-  const examResultMatches = new Map();
-  const unmatchedExamResults = [];
-  const unmatchedStudents = [];
-  if (canvasCSV !== null) {
-    // Do exam matching
-    const canvasIds = new Map();
-    for (let y = 3; y < canvasCSV.length; y++) {
-      const sn = normaliseStudentNum(canvasCSV[y][4]);
-      if (sn) canvasIds.set(sn, y);
-    }
-    // Find unmatching exam rows
-    const unmatchedExamRows = [];
-    const canvasIdsUsed = new Map();
-    for (let i = 0; i < examResults.length; i++) {
-      const sn = normaliseStudentNum(examResults[i].student_number);
-      if (canvasIds.has(sn)) {
-        canvasIdsUsed.set(sn, (canvasIdsUsed.get(sn) || 0) + 1);
-        examResultMatches.set(i, canvasIds.get(sn));
-      } else {
-        unmatchedExamRows.push(i);
-      }
-    }
-    // Remove duplicates
-    for (let i = 0; i < examResults.length; i++) {
-      const sn = normaliseStudentNum(examResults[i].student_number);
-      if (canvasIdsUsed.get(sn) > 1) {
-        examResultMatches.delete(i);
-        unmatchedExamRows.push(i);
-      }
-    }
-    // Find unmatched students
-    const unmatchedCanvasRows = [];
-    for (let y = 3; y < canvasCSV.length; y++) {
-      const sn = normaliseStudentNum(canvasCSV[y][4]);
-      if ((canvasIdsUsed.get(sn) || 0) !== 1) {
-        unmatchedCanvasRows.push(y);
-      }
-    }
-
-    // Find closest pairs of exam rows and canvas rows, complete until exhausted
-    while (unmatchedExamRows.length > 0 && unmatchedCanvasRows.length > 0) {
-      let bestDist = Infinity;
-      let bestIPos = -1, bestJPos = -1;
-      for (let iPos = 0; iPos < unmatchedExamRows.length; iPos++) {
-        const i = unmatchedExamRows[iPos];
-        for (let jPos = 0; jPos < unmatchedCanvasRows.length; jPos++) {
-          const j = unmatchedCanvasRows[jPos];
-          let dist = levenshtein(canvasCSV[j][4], examResults[i].student_number);
-          dist += 0.01 * levenshtein(canvasCSV[j][0].split(', ')[0].toUpperCase(), examResults[i].surname.toUpperCase());
-          if (dist < bestDist) {
-            bestDist = dist;
-            bestIPos = iPos;
-            bestJPos = jPos;
-          }
-        }
-      }
-
-      //console.log("Best match dist:", bestDist, examResults[unmatchedExamRows[bestIPos]].surname, canvasCSV[unmatchedCanvasRows[bestJPos]][0]);
-
-      unmatchedExamResults.push(unmatchedExamRows[bestIPos]);
-      unmatchedStudents.push(unmatchedCanvasRows[bestJPos]);
-      unmatchedExamRows.splice(bestIPos, 1);
-      unmatchedCanvasRows.splice(bestJPos, 1);
-    }
-    // Add remaining unmatched
-    {
-      const ae = [];
-      for (const i of unmatchedExamRows) {
-        let bestDist = Infinity;
-        for (const j of unmatchedStudents) {
-          let dist = levenshtein(canvasCSV[j][4], examResults[i].student_number);
-          dist += 0.01 * levenshtein(canvasCSV[j][0].split(', ')[0].toUpperCase(), examResults[i].surname.toUpperCase());
-          if (dist < bestDist) {
-            bestDist = dist;
-          }
-        }
-        ae.push([i, bestDist]);
-      }
-      ae.sort((a, b) => a[1] - b[1]);
-      unmatchedExamResults.splice(unmatchedExamResults.length, 0, ...ae.map(a => a[0]));
-    }
-    {
-      const ac = [];
-      for (const j of unmatchedCanvasRows) {
-        let bestDist = Infinity;
-        for (const i of unmatchedExamResults) {
-          let dist = levenshtein(canvasCSV[j][4], examResults[i].student_number);
-          dist += 0.01 * levenshtein(canvasCSV[j][0].split(', ')[0].toUpperCase(), examResults[i].surname.toUpperCase());
-          if (dist < bestDist) {
-            bestDist = dist;
-          }
-        }
-        ac.push([j, bestDist]);
-      }
-      ac.sort((a, b) => a[1] - b[1]);
-      unmatchedStudents.splice(unmatchedStudents.length, 0, ...ac.map(a => a[0]));
-    }
-
-
-    //unmatchedExamResults.splice(unmatchedExamResults.length, 0, ...unmatchedExamRows);
-    //unmatchedStudents.splice(unmatchedStudents.length, 0, ...unmatchedCanvasRows);
-  }
-
-  // const unmatchedExams = canvasStudentMatcher === null ? null : examResults.filter(
-  //   r => !(canvasStudentMatcher.has(normaliseStudentNum(r.student_number)))
-  // );
+  const {
+    examResultMatches,
+    unmatchedExamResults,
+    unmatchedStudents
+  } = matchExamResultsToCanvas(examResults, canvasCSV);
 
   const dbgOutput = blobs => {
     setOutURIs(prev => {
@@ -1802,8 +1503,8 @@ export function App() {
             : <></>}
         </div>
         <div class="col-sm-9">
-          <ScannerConfig cfg={cfg} setCfg={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
-          <ComparisonConfig comparison={comparison} setComparison={setComparison} cfg={cfg} currentlyScanning={currentlyScanning} />
+          <ScannerConfig config={cfg} setConfig={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
+          <ComparisonConfig comparison={comparison} setComparison={setComparison} scannerConfig={cfg} currentlyScanning={currentlyScanning} />
         </div>
       </div>
       <AnswerKey cfg={cfg} setCfg={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
@@ -1820,26 +1521,7 @@ export function App() {
         </div>
       </div>
 
-      {scanIssues.length === 0 ? <></> :
-        <div class="alert alert-danger" role="alert" aria-live="polite">
-          <div class="d-flex justify-content-between align-items-start gap-3">
-            <div>
-              <p class="fw-bold mb-1">
-                {scanIssues.length === 1 ? 'The scanner reported a problem.' : `The scanner reported ${scanIssues.length} problems.`}
-              </p>
-              <p class="mb-2">Successful pages have been kept. Check the details below before using or exporting the results.</p>
-            </div>
-            <button type="button" class="btn-close" aria-label="Dismiss scanner problems" onClick={() => setScanIssues([])}></button>
-          </div>
-          <ul class="mb-0">
-            {scanIssues.map((issue, index) =>
-              <li key={index}>
-                {issue.stage}{issue.page === null ? '' : ` — page ${issue.page}`}: {issue.message}
-              </li>
-            )}
-          </ul>
-        </div>
-      }
+      <ScanIssues issues={scanIssues} onDismiss={() => setScanIssues([])} />
 
       <div class="row">
         {progress === null ? <></> :
@@ -1857,49 +1539,18 @@ export function App() {
       <div class="row mt-2">
         <div class="col-5">
           <button class="btn btn-outline-primary w-100" onClick={e => {
-            const unit_code = "AAA000";
-            const date = new Date().toISOString().split('T')[0];
-            const filename = pdfName !== null ? pdfName : "filename.pdf";
-            const csv = [
-              ["Unit", "Exam date", "Student number", "Surname", "Initial", "Score", "Scanned file", "Page in File"],
-              ...examResults.map(
-                result => [
-                  unit_code,
-                  date,
-                  result.student_number,
-                  (result.surname + "            ").substring(0, 12).toUpperCase(),
-                  result.initials.toUpperCase(),
-                  calculateScore(result.answers, cfg.answerKey),
-                  filename,
-                  result.page
-                ]
-              )
-            ];
+            const csv = buildResultsCsvRows({
+              examResults,
+              answerKey: cfg.answerKey,
+              pdfName
+            });
             const blob = new Blob([createCSV(csv)], { type: 'text/csv' });
             download_file("results.csv", blob);
           }}>Export results.csv (contains grades, but not individual answers)</button>
         </div>
         <div class="col-4">
           <button class="btn btn-outline-primary w-100" onClick={e => {
-            const unit_code = "AAA000";
-            const date = new Date().toISOString().split('T')[0];
-            const filename = pdfName !== null ? pdfName : "filename.pdf";
-            const csv = [
-              ["Unit", "Exam date", "Student number", "Surname", "Initial", "Scanned file", "Page in File", ...range(160).map(q => `Q${q + 1}`)],
-              ...examResults.map(
-                result => [
-                  unit_code,
-                  date,
-                  result.student_number,
-                  (result.surname + "            ").substring(0, 12).toUpperCase(),
-                  result.initials.replaceAll(' ', '').toUpperCase(),
-                  filename,
-                  result.page,
-                  ...result.answers.map(ans => ans.trimEnd()),
-                  ...range(160 - result.answers.length).map(_ => "")
-                ]
-              )
-            ];
+            const csv = buildRawResultsCsvRows({ examResults, pdfName });
 
             const blob = new Blob([createCSV(csv)], { type: 'text/csv' });
             download_file("raw_results.csv", blob);

@@ -22,7 +22,12 @@ Useful checks:
 ```text
 npm test
 npm run build
+npm run test:e2e
 ```
+
+`npm test` runs the fast unit tests. `npm run test:e2e` starts Vite and uses the
+installed Microsoft Edge browser to run the full ten-page recognition fixture;
+it takes roughly 90 seconds on the current development machine.
 
 ## Characterization fixture
 
@@ -30,9 +35,9 @@ npm run build
 to preserve the current recognition behaviour. Its observed output is recorded in
 `tests/fixtures/scan_chappeta.expected.json`.
 
-The fixture currently acts as a reviewed baseline. The fast automated tests check
-its presence and schema; a future browser integration test should run the actual
-OpenCV/TensorFlow pipeline and compare the stable fields with this file.
+The fast automated tests check the fixture's presence and schema. The Playwright
+test runs the actual OpenCV/TensorFlow pipeline and compares student details,
+answers, and questionable flags with the reviewed output.
 
 Baseline scan settings:
 
@@ -44,10 +49,15 @@ Baseline scan settings:
 ## Current architecture
 
 - `src/app.jsx` contains the Preact interface and most import/export workflows.
+- `src/components/` contains configuration and scanner-status UI components.
 - `src/scannerWorker.js` contains the OpenCV/TensorFlow recognition pipeline.
 - `src/scannerClient.mjs` owns the request/response boundary to that worker.
 - `src/examDomain.mjs` contains small, testable scoring and normalization rules.
+- `src/services/` contains CSV result formatting, comparison imports, and Canvas
+  student matching.
 - `src/util/csv.mjs` owns standards-compliant CSV parsing and generation.
+- `tools/trainer-legacy/` preserves classifier-training experiments that are not
+  part of the production application.
 
 The large UI and worker files are intentionally being split gradually. Recognition
 logic should not be reorganized until its fixture can be exercised automatically.
