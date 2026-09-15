@@ -3,7 +3,17 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import 'pdfjs-dist/build/pdf.worker.mjs';
 import { loadCSV, createCSV } from './util/csv.mjs';
-import { calculateScore, fixAnswers, normaliseStudentNum } from './examDomain.mjs';
+import {
+  ANSWER_OPTIONS,
+  answerIncludes,
+  calculateScore,
+  createAnswerKey,
+  fixAnswers,
+  isAnswerCorrect,
+  normaliseAnswer,
+  normaliseStudentNum,
+  updateAnswer
+} from './examDomain.mjs';
 import { createLazyScannerClient } from './scannerClient.mjs';
 import { ScanIssues } from './components/ScanIssues.jsx';
 import { ScannerConfig } from './components/ScannerConfig.jsx';
@@ -22,6 +32,14 @@ const scannerClient = createLazyScannerClient(() => new Worker(
 const invokeScanner = scannerClient.invoke;
 
 const range = (st, ed = null) => ed === null ? [...Array(st).keys()] : [...(Array(ed - st).keys().map(v => v + st))];
+const multiAnswerQuestionsFor = cfg => cfg.hasMultiAnswer ? (cfg.multiAnswerQuestions ?? {}) : {};
+const ANSWER_COMBINATIONS = [
+  ' ',
+  ...Array.from({ length: 31 }, (_, mask) => ANSWER_OPTIONS
+    .filter((_, option) => ((mask + 1) & (1 << option)) !== 0)
+    .join(''))
+    .sort((left, right) => left.length - right.length || left.localeCompare(right))
+];
 
 function AnswerKey({ cfg, setCfg, pdf, currentlyScanning }) {
   const [exportPdfOpen, setExportPdfOpen] = useState(false);
@@ -54,9 +72,32 @@ function AnswerKey({ cfg, setCfg, pdf, currentlyScanning }) {
       for (let row = 0; row < blockSize; row++) {
         let qnum = majorGroup * (blockSize * blockCount) + block * blockSize + row;
         let label_prefix = `ak_${qnum + 1}_`;
+        const multiAnswer = Boolean(cfg.hasMultiAnswer && cfg.multiAnswerQuestions?.[qnum]);
         let entry = (<>
           <div class="btn-group btn-group-sm mt-1 mb-1" role="group">
             <span class="btn fw-bold me-2">Q{qnum + 1}:</span>
+            {cfg.hasMultiAnswer ? <>
+              <input
+                type="checkbox"
+                class="btn-check"
+                autocomplete="off"
+                id={`${label_prefix}multi`}
+                checked={multiAnswer}
+                disabled={currentlyScanning}
+                onChange={event => {
+                  const multiAnswerQuestions = { ...(cfg.multiAnswerQuestions ?? {}) };
+                  if (event.target.checked) multiAnswerQuestions[qnum] = true;
+                  else delete multiAnswerQuestions[qnum];
+                  setCfg(previous => ({ ...previous, multiAnswerQuestions }));
+                }}
+              />
+              <label
+                class="btn btn-outline-secondary"
+                htmlFor={`${label_prefix}multi`}
+                aria-label={`Question ${qnum + 1} uses multiple answers`}
+                title="Require the student's selected set to match every keyed answer"
+              >Multi</label>
+            </> : null}
             {options.map(opt => <Fragment key={opt}>
               <input
                 type="checkbox" class="btn-check" autocomplete="off"
@@ -417,7 +458,22 @@ const DiffInput = ({ diffNumbers, examResults, setExamResults, field, showAction
     </>
 );
 
-const DiffAnswerEntry = ({ diff, examResults, setExamResults, showActioned }) => {
+const AnswerButtons = ({ answer, multiple, onChange }) => (
+  <div class="btn-group btn-group-sm mt-1 mb-1 w-100" role="group">
+    {['-', ...ANSWER_OPTIONS].map(option => {
+      const selected = option === '-'
+        ? normaliseAnswer(answer) === ' '
+        : answerIncludes(answer, option);
+      return <button
+        key={option}
+        class={`btn fw-bold btn-outline-primary${selected ? ' btn-dark text-light' : ''}`}
+        onClick={() => onChange(updateAnswer(answer, option, multiple))}
+      >{option}</button>;
+    })}
+  </div>
+);
+
+const DiffAnswerEntry = ({ cfg, diff, examResults, setExamResults, showActioned }) => {
   const [actioned, setActioned] = useState(false);
   if (actioned && !showActioned) return <></>;
 
@@ -432,29 +488,20 @@ const DiffAnswerEntry = ({ diff, examResults, setExamResults, showActioned }) =>
       Page&nbsp;{examResults[diff.i].page}, Q{diff.idx + 1}
     </div>
     <div class="col-sm-2 d-flex align-items-center justify-content-center">
-      <div class="btn-group btn-group-sm mt-1 mb-1 w-100" role="group">
-        {
-          ["-", "A", "B", "C", "D", "E"].map(opt => <Fragment key={opt}>
-            <button
-              class={`btn fw-bold btn-outline-primary${examResults[diff.i].answers[diff.idx].replace(' ', '-') === opt ? ' btn-dark text-light' : ''}`}
-              onClick={e => {
-                setResultFields(setExamResults, diff.i, prev => {
-                  return ({
-                    answers: [
-                      ...prev.answers.slice(0, diff.idx),
-                      opt.replace('-', ' '),
-                      ...prev.answers.slice(diff.idx + 1)
-                    ]
-                  });
-                });
-                setActioned(true);
-              }}
-            >
-              {opt}
-            </button>
-          </Fragment>)
-        }
-      </div>
+      <AnswerButtons
+        answer={examResults[diff.i].answers[diff.idx]}
+        multiple={Boolean(multiAnswerQuestionsFor(cfg)[diff.idx])}
+        onChange={answer => {
+          setResultFields(setExamResults, diff.i, previous => ({
+            answers: [
+              ...previous.answers.slice(0, diff.idx),
+              answer,
+              ...previous.answers.slice(diff.idx + 1)
+            ]
+          }));
+          setActioned(true);
+        }}
+      />
     </div>
     <div class="col sm-2 fw-bold d-flex align-items-center">
       Compare:&nbsp;<span class="fw-bold">{diff.origValue.replace(' ', '-')}</span>
@@ -465,17 +512,17 @@ const DiffAnswerEntry = ({ diff, examResults, setExamResults, showActioned }) =>
   </div>);
 };
 
-const DiffAnswers = ({ diffAnswers, examResults, setExamResults, showActioned }) => (
+const DiffAnswers = ({ cfg, diffAnswers, examResults, setExamResults, showActioned }) => (
   diffAnswers.length === 0 ? <></> :
     <>
       <div class="row">
         <p class="fw-bold">Differences detected in answers:</p>
       </div>
-      {diffAnswers.map(diff => <DiffAnswerEntry diff={diff} examResults={examResults} setExamResults={setExamResults} showActioned={showActioned} />)}
+      {diffAnswers.map(diff => <DiffAnswerEntry cfg={cfg} diff={diff} examResults={examResults} setExamResults={setExamResults} showActioned={showActioned} />)}
     </>
 );
 
-const QuestionableEntry = ({ idx, q, img, examResults, setExamResults, showActioned }) => {
+const QuestionableEntry = ({ cfg, idx, q, img, examResults, setExamResults, showActioned }) => {
   const [actioned, setActioned] = useState(false);
   if (actioned && !showActioned) return <></>;
 
@@ -497,29 +544,20 @@ const QuestionableEntry = ({ idx, q, img, examResults, setExamResults, showActio
       Page&nbsp;{examResults[idx].page}, Q{q + 1}
     </div>
     <div class="col-sm-2 d-flex align-items-center justify-content-center">
-      <div class="btn-group btn-group-sm mt-1 mb-1 w-100" role="group">
-        {
-          ["-", "A", "B", "C", "D", "E"].map(opt => <Fragment key={opt}>
-            <button
-              class={`btn fw-bold btn-outline-primary${examResults[idx].answers[q].replace(' ', '-') === opt ? ' btn-dark text-light' : ''}`}
-              onClick={e => {
-                setResultFields(setExamResults, idx, prev => {
-                  return ({
-                    answers: [
-                      ...prev.answers.slice(0, q),
-                      opt.replace('-', ' '),
-                      ...prev.answers.slice(q + 1)
-                    ]
-                  });
-                });
-                setActioned(true);
-              }}
-            >
-              {opt}
-            </button>
-          </Fragment>)
-        }
-      </div>
+      <AnswerButtons
+        answer={examResults[idx].answers[q]}
+        multiple={Boolean(multiAnswerQuestionsFor(cfg)[q])}
+        onChange={answer => {
+          setResultFields(setExamResults, idx, previous => ({
+            answers: [
+              ...previous.answers.slice(0, q),
+              answer,
+              ...previous.answers.slice(q + 1)
+            ]
+          }));
+          setActioned(true);
+        }}
+      />
     </div>
     <div class="col sm-2 fw-bold d-flex align-items-center">
       Scanned:&nbsp;<span class="fw-bold">{examResults[idx].raw_answers[q].scanned_value.replace(' ', '-')}</span>
@@ -527,7 +565,7 @@ const QuestionableEntry = ({ idx, q, img, examResults, setExamResults, showActio
   </div>);
 };
 
-const Questionable = ({ examResults, setExamResults, showActioned }) => {
+const Questionable = ({ cfg, examResults, setExamResults, showActioned }) => {
   const [sorted, setSorted] = useState(['page', 'asc']);
 
   if (examResults === null) return (<></>);
@@ -568,7 +606,7 @@ const Questionable = ({ examResults, setExamResults, showActioned }) => {
       return ['ans', 'asc'];
     })}>Scanned Response{sorted?.[0] === 'ans' ? (sorted[1] === 'asc' ? ' ▲' : ' ▼') : ''}</div>
     {questionables.map(
-      questionable => <QuestionableEntry key={`${questionable.erIdx} ${questionable.q}`} idx={questionable.erIdx} q={questionable.q} img={questionable.img} examResults={examResults} setExamResults={setExamResults} showActioned={showActioned} />
+      questionable => <QuestionableEntry cfg={cfg} key={`${questionable.erIdx} ${questionable.q}`} idx={questionable.erIdx} q={questionable.q} img={questionable.img} examResults={examResults} setExamResults={setExamResults} showActioned={showActioned} />
     )}
   </div>);
 };
@@ -627,39 +665,44 @@ const createExamImage = async (cfg, result, pdf) => {
   const ystarts = [9449, 1225, 5361, 9496];
   const xstep = 377;
   const ystep = 378.555555;
-  const rad = 88;
   const qs = cfg.twoSided ? 160 : 40;
   const OPTIONS = { ' ': -1, 'A': 0, 'B': 1, 'C': 2, 'D': 3, 'E': 4 };
   for (let q = 0; q < qs; q++) {
-    const ans = result.answers[q];
-    let opt = OPTIONS[ans];
-    if (opt !== -1) {
-      let pg, row, col, x, y;
-      if (q < 40) { // First page
-        pg = 0;
-        row = q % 10;
-        col = Math.floor(q / 10);
-        y = ystarts[0] + ystep * row;
-      } else { // Second page
-        pg = 1;
-        row = (q - 40) % 30;
-        col = Math.floor((q - 40) / 30);
-        y = ystarts[Math.floor(row / 10) + 1] + ystep * (row % 10);
-      }
-      x = xstarts[col] + xstep * opt;
-
-      //pages[pg].drawCircle({x: x / scale, y: height - y / scale, size: rad / scale, color});
-
-      let [px, py] = trPoint(x / scale, y / scale, height, pg === 0 ? result.homographies : result.homographies2);
+    const answer = normaliseAnswer(result.answers[q]);
+    const selectedOptions = answer.trim().split('');
+    let pg, row, col, y;
+    if (q < 40) { // First page
+      pg = 0;
+      row = q % 10;
+      col = Math.floor(q / 10);
+      y = ystarts[0] + ystep * row;
+    } else { // Second page
+      pg = 1;
+      row = (q - 40) % 30;
+      col = Math.floor((q - 40) / 30);
+      y = ystarts[Math.floor(row / 10) + 1] + ystep * (row % 10);
+    }
+    const responseCorrect = isAnswerCorrect(
+      answer,
+      cfg.answerKey?.[q],
+      Boolean(multiAnswerQuestionsFor(cfg)[q])
+    );
+    for (const option of selectedOptions) {
+      const x = xstarts[col] + xstep * OPTIONS[option];
+      const [px, py] = trPoint(x / scale, y / scale, height, pg === 0 ? result.homographies : result.homographies2);
       pages[pg].drawSquare({ x: px - 10, y: py - 10, size: 20, borderColor: squareCol, borderWidth: 1 });
-      if (cfg.answerKey?.[q]?.[ans]) {
+      if (responseCorrect) {
         pages[pg].drawText('✔', { x: px + 5, y: py - 10, font, size, color: tickCol });
       } else {
         pages[pg].drawText('✘', { x: px + 5, y: py - 10, font, size, color: crossCol });
-        for (const o of Object.keys(cfg.answerKey?.[q] ?? []).filter(k => cfg.answerKey?.[q]?.[k])) {
-          const x = xstarts[col] + xstep * OPTIONS[o];
-          const [px, py] = trPoint(x / scale, y / scale, height, pg === 0 ? result.homographies : result.homographies2);
-          pages[pg].drawText('✔', { x: px + 3, y: py - 8, font, size, color: tickCol });
+        if (option === selectedOptions.at(-1)) {
+          const missingAnswers = Object.keys(cfg.answerKey?.[q] ?? [])
+            .filter(key => cfg.answerKey?.[q]?.[key] && !selectedOptions.includes(key));
+          for (const o of missingAnswers) {
+            const x = xstarts[col] + xstep * OPTIONS[o];
+            const [px, py] = trPoint(x / scale, y / scale, height, pg === 0 ? result.homographies : result.homographies2);
+            pages[pg].drawText('✔', { x: px + 3, y: py - 8, font, size, color: tickCol });
+          }
         }
       }
     }
@@ -754,7 +797,7 @@ const DownloadPDFs = ({ examResults, cfg, pdf, assignment, canvasCSV, examResult
 
               grades.push([
                 canvasId,
-                `${calculateScore(er.answers, cfg.answerKey)}`,
+                `${calculateScore(er.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg))}`,
                 await hashBlob(blob),
                 fn
               ]);
@@ -802,9 +845,10 @@ const ExamAnalysis = ({ examResults, cfg }) => {
   }
 
   const OPTIONS = ["A", "B", "C", "D", "E"];
+  const multiAnswerQuestions = multiAnswerQuestionsFor(cfg);
 
   let examQuestions = Object.keys(cfg.answerKey).filter(k => Object.values(cfg.answerKey[k]).filter(v => v).length > 0).map(i => Number.parseInt(i));
-  const studentScores = examResults.map(er => calculateScore(er.answers, cfg.answerKey));
+  const studentScores = examResults.map(er => calculateScore(er.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg)));
   const sortedScores = [...studentScores];
   sortedScores.sort((a, b) => Number.parseFloat(a) - Number.parseFloat(b))
   let totalScore = 0;
@@ -824,7 +868,11 @@ const ExamAnalysis = ({ examResults, cfg }) => {
     const scores_without = [];
     for (let i = 0; i < examResults.length; i++) {
       let score_without_question = studentScores[i];
-      if (cfg.answerKey?.[q]?.[examResults[i].answers[q]]) score_without_question--;
+      if (isAnswerCorrect(
+        examResults[i].answers[q],
+        cfg.answerKey?.[q],
+        Boolean(multiAnswerQuestions[q])
+      )) score_without_question--;
       scores_without.push(score_without_question);
     }
     const stdev = getStandardDeviation(scores_without);
@@ -834,7 +882,7 @@ const ExamAnalysis = ({ examResults, cfg }) => {
       let sum_incorrect = 0;
       let num_correct = 0, num_incorrect = 0;
       for (let i = 0; i < examResults.length; i++) {
-        if (examResults[i].answers[q] === opt) {
+        if (answerIncludes(examResults[i].answers[q], opt)) {
           num_correct++;
           sum_correct += scores_without[i];
         } else {
@@ -850,8 +898,19 @@ const ExamAnalysis = ({ examResults, cfg }) => {
       //discrim[q][opt] = ((avg_correct - avg_incorrect) / stdev) * Math.sqrt(diff / (1 - diff));
       discrim[q][opt] = ((avg_correct - avg_incorrect) / stdev) * Math.sqrt((num_correct * num_incorrect) / Math.pow(examResults.length, 2));
     }
-    difficulty[q].overall = OPTIONS.filter(o => cfg.answerKey?.[q]?.[o]).map(o => difficulty[q][o]).reduce((a, b) => a + b);
-    discrim[q].overall = OPTIONS.filter(o => cfg.answerKey?.[q]?.[o]).map(o => discrim[q][o]).reduce((a, b) => Math.max(a, b));
+    const correctResponses = examResults.map(result => isAnswerCorrect(
+      result.answers[q],
+      cfg.answerKey?.[q],
+      Boolean(multiAnswerQuestions[q])
+    ));
+    difficulty[q].overall = correctResponses.filter(Boolean).length / examResults.length;
+    const correctScores = scores_without.filter((_, index) => correctResponses[index]);
+    const incorrectScores = scores_without.filter((_, index) => !correctResponses[index]);
+    const average = values => values.reduce((sum, value) => sum + value, 0) / values.length;
+    discrim[q].overall = correctScores.length > 0 && incorrectScores.length > 0 && stdev > 0
+      ? (average(correctScores) - average(incorrectScores)) / stdev
+        * Math.sqrt((correctScores.length * incorrectScores.length) / Math.pow(examResults.length, 2))
+      : 0;
   }
 
   return (<>
@@ -920,9 +979,13 @@ const examResultsRow = (cfg, setExamResults, pdf) => ((result, i) => (
     <div><input autocomplete="off" type="text" data-field="initials" value={result.initials} class="w-100" style={{ textTransform: "uppercase" }} onChange={
       e => setResultFields(setExamResults, i, { initials: e.target.value })
     } /></div>
-    <div class="ps-2">{calculateScore(result.answers, cfg.answerKey)}</div>
+    <div class="ps-2" data-field="score">{calculateScore(result.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg))}</div>
     {fixAnswers(cfg, result.answers).map(
-      (ans, j) => <div key={j}><select class="w-100" data-question={j + 1}
+      (ans, j) => {
+        const multiple = Boolean(multiAnswerQuestionsFor(cfg)[j]);
+        const choices = multiple ? ANSWER_COMBINATIONS : [' ', ...ANSWER_OPTIONS];
+        return <div key={j}><select class="w-100" data-question={j + 1}
+        aria-label={`Question ${j + 1}${multiple ? ' multi-answer response' : ' response'}`}
         value={ans}
         onChange={
           e => setResultFields(setExamResults, i, prev => ({
@@ -934,13 +997,9 @@ const examResultsRow = (cfg, setExamResults, pdf) => ((result, i) => (
           }))
         }
       >
-        <option value=" "> </option>
-        <option value="A">A</option>
-        <option value="B">B</option>
-        <option value="C">C</option>
-        <option value="D">D</option>
-        <option value="E">E</option>
+        {choices.map(choice => <option value={choice}>{choice}</option>)}
       </select></div>
+      }
     )}
   </div>));
 
@@ -980,7 +1039,10 @@ const ExamResultsDisplay = ({ cfg, examResults, setExamResults, pdf }) => {
       if (sortCol === 'page') {
         sortFunc = (a, b) => ((examResults[a][sortCol] - examResults[b][sortCol]) * sortDir);
       } else if (sortCol === 'score') {
-        sortFunc = (a, b) => ((calculateScore(examResults[a].answers, cfg.answerKey) - calculateScore(examResults[b].answers, cfg.answerKey)) * sortDir);
+        sortFunc = (a, b) => ((
+          calculateScore(examResults[a].answers, cfg.answerKey, multiAnswerQuestionsFor(cfg))
+          - calculateScore(examResults[b].answers, cfg.answerKey, multiAnswerQuestionsFor(cfg))
+        ) * sortDir);
       } else {
         sortFunc = (a, b) => (enCollator.compare(examResults[a][sortCol], examResults[b][sortCol]) * sortDir);
       }
@@ -1134,6 +1196,8 @@ export function App() {
     endAt: 1,
     twoSided: false,
     hasMarker: false,
+    hasMultiAnswer: false,
+    multiAnswerQuestions: {},
     answerKey: {},
     showQuestionable: true,
     showQActioned: true,
@@ -1148,6 +1212,9 @@ export function App() {
   const diffInitials = diffs.filter(diff => diff.field === "initials");
 
   const currentlyScanning = progress !== null;
+  const activeMultiAnswerQuestions = cfg.hasMultiAnswer
+    ? Object.keys(cfg.multiAnswerQuestions ?? {}).filter(question => cfg.multiAnswerQuestions[question]).map(Number)
+    : [];
 
   const reportScanIssue = (stage, error, page = null) => {
     const message = error instanceof Error ? error.message : `${error}`;
@@ -1229,20 +1296,24 @@ export function App() {
       if (confirmation) {
         let bmp = await getPdfPage(cfg.startAt);
         
-        const data = await invokeScanner("scan", { bmp, page: 0, compare: {} }, [bmp]);
-        let answers = data.answers;
+        const data = await invokeScanner("scan", {
+          bmp,
+          page: 0,
+          compare: {},
+          multiAnswerQuestions: activeMultiAnswerQuestions
+        }, [bmp]);
+        let answers = data.answer_values ?? data.answers.split('');
         if (cfg.twoSided) {
           bmp = await getPdfPage(cfg.startAt + 1);
-          const data = await invokeScanner("scan", { bmp, page: 1, compare: {} }, [bmp]);
-          answers = answers.concat(data.answers);
+          const data = await invokeScanner("scan", {
+            bmp,
+            page: 1,
+            compare: {},
+            multiAnswerQuestions: activeMultiAnswerQuestions
+          }, [bmp]);
+          answers = answers.concat(data.answer_values2 ?? data.answers2.split(''));
         }
-        const answerKey = {};
-        for (let i = 0; i < answers.length; i++) {
-          if (answers[i] !== " ") {
-            if (!(i in answerKey)) answerKey[i] = {};
-            answerKey[i][answers[i]] = true;
-          }
-        }
+        const answerKey = createAnswerKey(answers);
         setCfg(cfg => ({ ...cfg, answerKey }));
       }
       setProgress([1, newResults.length + 1]);
@@ -1287,7 +1358,7 @@ export function App() {
           student_number,
           surname,
           initials,
-          answers: q.map(v => v || ' ').slice(0, cfg.twoSided ? 40 : 160),
+          answers: q.map(v => normaliseAnswer(v || ' ')).slice(0, cfg.twoSided ? 160 : 40),
           diffs: []
         });
       }
@@ -1382,34 +1453,40 @@ export function App() {
           }
         }
 
-        const result = await invokeScanner("scan", { bmp, page: 0, compare }, [bmp]);
+        const result = await invokeScanner("scan", {
+          bmp,
+          page: 0,
+          compare,
+          multiAnswerQuestions: activeMultiAnswerQuestions
+        }, [bmp]);
         //console.log(result);
 
-        let { answers, raw_answers, student_number, raw_student_number, surname, raw_surname, initials, raw_initials, diffs, homographies } = result;
+        let { raw_answers, student_number, raw_student_number, surname, raw_surname, initials, raw_initials, diffs, homographies } = result;
+        let answers = result.answer_values ?? result.answers.split('');
         let homographies2 = [];
 
         if (cfg.twoSided && currentPage + 1 <= endAt) {
           bmp = await getPdfPage(currentPage + 1);
-          const result = await invokeScanner("scan", { bmp, page: 1, compare }, [bmp]);
+          const result = await invokeScanner("scan", {
+            bmp,
+            page: 1,
+            compare,
+            multiAnswerQuestions: activeMultiAnswerQuestions
+          }, [bmp]);
           //console.log(result);
-          let { answers2, raw_answers2 } = result;
+          let { raw_answers2 } = result;
+          const answers2 = result.answer_values2 ?? result.answers2.split('');
           homographies2 = result.homographies;
           diffs = diffs.concat(result.diffs);
-          if (answers.length !== 40) answers = (answers + "                                        ").substring(0, 40);
-          answers += answers2;
+          answers = answers.concat(Array(40).fill(' ')).slice(0, 40);
+          answers = answers.concat(answers2);
           raw_answers = raw_answers.concat(raw_answers2);
         }
 
         // Is this the marker page
         if (cfg.hasMarker && currentPage === startAt) {
           // Do not store, but instead make this the new answer key
-          answerKey = {};
-          for (let i = 0; i < answers.length; i++) {
-            if (answers[i] !== " ") {
-              if (!(i in answerKey)) answerKey[i] = {};
-              answerKey[i][answers[i]] = true;
-            }
-          }
+          answerKey = createAnswerKey(answers);
           setCfg(cfg => ({ ...cfg, answerKey }));
         } else {
           const new_result = {
@@ -1417,7 +1494,7 @@ export function App() {
             student_number,
             surname,
             initials,
-            answers: fixAnswers(cfg, answers.split('')),
+            answers: fixAnswers(cfg, answers),
             raw_student_number, raw_surname, raw_initials, raw_answers: raw_answers.map((ra, i) => ({ ...ra, scanned_value: answers[i] })),
             diffs,
             homographies,
@@ -1582,6 +1659,7 @@ export function App() {
             const csv = buildResultsCsvRows({
               examResults,
               answerKey: cfg.answerKey,
+              multiAnswerQuestions: multiAnswerQuestionsFor(cfg),
               pdfName
             });
             const blob = new Blob([createCSV(csv)], { type: 'text/csv' });
@@ -1606,6 +1684,8 @@ export function App() {
             const dataset = {
               pdfHash,
               twoSided: cfg.twoSided,
+              hasMultiAnswer: cfg.hasMultiAnswer,
+              multiAnswerQuestions: multiAnswerQuestionsFor(cfg),
               examResults: JSON.parse(JSON.stringify(examResults)),
               answerKey: cfg.answerKey
             };
@@ -1662,8 +1742,20 @@ export function App() {
                 if ('homographies2' in er) delete er.homographies2;
               })
             }
-            setCfg({ ...cfg, twoSided: dataset.twoSided, answerKey: dataset.answerKey });
-            setExamResults(dataset.examResults);
+            setCfg({
+              ...cfg,
+              twoSided: dataset.twoSided,
+              answerKey: dataset.answerKey,
+              hasMultiAnswer: Boolean(dataset.hasMultiAnswer),
+              multiAnswerQuestions: dataset.multiAnswerQuestions ?? {}
+            });
+            setExamResults(dataset.examResults.map(result => ({
+              ...result,
+              answers: fixAnswers(
+                { twoSided: dataset.twoSided },
+                result.answers ?? []
+              )
+            })));
           } catch (e) {
             window.alert("Invalid JSON file: " + e.message);
           }
@@ -1698,7 +1790,7 @@ export function App() {
       <DiffInput diffNumbers={diffInitials} field="initials" examResults={examResults} setExamResults={setExamResults} showActioned={cfg.showActioned}>
         Differences detected in student initials:
       </DiffInput>
-      <DiffAnswers diffAnswers={diffAnswers} examResults={examResults} setExamResults={setExamResults} showActioned={cfg.showActioned} />
+      <DiffAnswers cfg={cfg} diffAnswers={diffAnswers} examResults={examResults} setExamResults={setExamResults} showActioned={cfg.showActioned} />
       {'results' in comparison ? <hr /> : <></>}
       {cfg.showQuestionable ? <>
         <div class="row">
@@ -1711,7 +1803,7 @@ export function App() {
           } />
           <label class="btn btn-outline-primary" htmlFor="showQActioned">Show questionable scans that have been actioned</label>
         </div>
-        <Questionable examResults={examResults} setExamResults={setExamResults} showActioned={cfg.showQActioned} />
+        <Questionable cfg={cfg} examResults={examResults} setExamResults={setExamResults} showActioned={cfg.showQActioned} />
       </>
         : <></>}
       <div>
@@ -1873,7 +1965,11 @@ export function App() {
                 for (const i of examResultMatches.keys()) {
                   const j = examResultMatches.get(i);
                   const col = canvasAssignments[canvasAssignment].col;
-                  csv[j][col] = calculateScore(examResults[i].answers, cfg.answerKey);
+                  csv[j][col] = calculateScore(
+                    examResults[i].answers,
+                    cfg.answerKey,
+                    multiAnswerQuestionsFor(cfg)
+                  );
                 }
                 const blob = new Blob([createCSV(csv)]);
                 download_file("canvas-export.csv", blob);

@@ -47,3 +47,21 @@ test('raw results export always contains 160 answer columns', () => {
     'exam.pdf', 7, 'A', 'B', ''
   ]);
 });
+
+test('multi-answer responses remain in one canonical question column', () => {
+  const multiResults = [{ ...examResults[0], answers: ['DB', 'A'] }];
+  const rows = buildRawResultsCsvRows({
+    examResults: multiResults,
+    pdfName: 'exam.pdf',
+    date: '2026-09-15'
+  });
+  assert.deepEqual(rows[1].slice(7, 9), ['BD', 'A']);
+
+  const scoreRows = buildResultsCsvRows({
+    examResults: multiResults,
+    answerKey: { 0: { B: true, D: true }, 1: { A: true, C: true } },
+    multiAnswerQuestions: { 0: true, 1: true },
+    date: '2026-09-15'
+  });
+  assert.equal(scoreRows[1][5], 1);
+});

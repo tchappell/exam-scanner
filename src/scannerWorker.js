@@ -810,7 +810,7 @@ const warpPdfPageLinear = async (bmp, templatePage) => {
   return [matOut, homographies];
 };
 
-const predict_answer_cas = (filled, ocrlist, anticheat = false) => {
+const predict_answer_cas = (filled, ocrlist, anticheat = false, allowMultiple = false) => {
   const MIN_CROSSED_OCR = 1;
   const ocr = ocrlist.length > 0 ? ocrlist[0] : null;
   let filled_count = 0, crossed_count = 0, empty_count = 0;
@@ -857,6 +857,18 @@ const predict_answer_cas = (filled, ocrlist, anticheat = false) => {
     if (filled_count === 0) {
       return [' ', raw];
     }
+  }
+
+  // Multi-answer questions preserve every bubble classified as filled. Crossed
+  // bubbles and handwritten corrections remain reviewable rather than being
+  // silently folded into the selected set.
+  if (allowMultiple && filled_count > 0) {
+    const selected = filled
+      .filter(choice => choice.filled && !choice.crossed)
+      .map(choice => choice.key)
+      .join('');
+    if (crossed_count > 0 || ocr !== null) raw.questionable = true;
+    if (selected !== '') return [selected, raw];
   }
 
   // If there's one answer and nothing crossed, return it
@@ -1247,8 +1259,16 @@ const ocr_all = async (matss, answer_key, abcdepredict) => {
   return ocrss;
 };
 
-const predict_horizontal_cas = async (mat, answer_key, bubblepredict, abcdepredict, page) => {
+const predict_horizontal_cas = async (
+  mat,
+  answer_key,
+  bubblepredict,
+  abcdepredict,
+  page,
+  multiAnswerQuestions = []
+) => {
   const cv = await cvReadyPromise;
+  const multiAnswerQuestionSet = new Set(multiAnswerQuestions);
   let answers = [], answers_raw = [];
   let matss = await get_ocr_q_mats(mat, page);
   let ocrss = await ocr_all(matss, answer_key, abcdepredict);
@@ -1313,12 +1333,18 @@ const predict_horizontal_cas = async (mat, answer_key, bubblepredict, abcdepredi
       filled[idx].key = answer_key[idx];
     }
 
-    const [answer, answer_raw] = predict_answer_cas(filled, ocr, true);
+    const questionIndex = page === 0 ? q : q + 40;
+    const [answer, answer_raw] = predict_answer_cas(
+      filled,
+      ocr,
+      true,
+      multiAnswerQuestionSet.has(questionIndex)
+    );
     //console.log(q, answer, filled, ocr);
     answers.push(answer);
     answers_raw.push(answer_raw);
   }
-  return [answers.join(""), answers_raw];
+  return [answers.join(""), answers_raw, answers];
 };
 
 const matToJpeg = async (mat) => {
@@ -1379,20 +1405,26 @@ const scan = async data => {
 
     const bubblepredict = await bubblepredictPromise;
     const abcdepredict = await abcdepredictPromise;
-    const answersPromise = predict_horizontal_cas(mat, "ABCDE", bubblepredict, abcdepredict, data.page)
-    .then(([answers, raw_answers]) => {
+    const answersPromise = predict_horizontal_cas(
+      mat,
+      "ABCDE",
+      bubblepredict,
+      abcdepredict,
+      data.page,
+      data.multiAnswerQuestions
+    )
+    .then(([answers, raw_answers, answer_values]) => {
       if ('q' in compare) {
-        const a = answers.split('');
         for (let i = 0; i < 40; i++) {
-          if (a[i].trimEnd() !== compare.q[i]) {
+          if (answer_values[i].trimEnd() !== compare.q[i]) {
             const lat = known_lattices[0][3 + Math.floor(i / 10)];
             let xpos = Math.floor(lat.xstep * 2 + lat.xstart); // Middle of C
             let ypos = Math.floor(lat.ystep * (i % 10) + lat.ystart); // Row
-            diffPromises.push(difference("answers", i, compare.q[i], a[i].trimEnd(), matOriginal, xpos - 380, ypos - 80, xpos + 380, ypos + 80));
+            diffPromises.push(difference("answers", i, compare.q[i], answer_values[i].trimEnd(), matOriginal, xpos - 380, ypos - 80, xpos + 380, ypos + 80));
           }
         }
       }
-      return [answers, raw_answers];
+      return [answers, raw_answers, answer_values];
     });
     const digitpredict = await digitpredictPromise;
     const studentNumberPromise = predict_vertical_cas(mat, known_lattices[0][0], "0123456789", bubblepredict, digitpredict)
@@ -1443,39 +1475,45 @@ const scan = async data => {
     });
 
     const [
-      [answers, raw_answers],
+      [answers, raw_answers, answer_values],
       [student_number, raw_student_number],
       [surname, raw_surname],
       [initials, raw_initials]
     ] = await Promise.all([answersPromise, studentNumberPromise, surnamePromise, initialsPromise]);
 
-    result = { answers, raw_answers, student_number, raw_student_number, surname, raw_surname, initials, raw_initials };
+    result = { answers, answer_values, raw_answers, student_number, raw_student_number, surname, raw_surname, initials, raw_initials };
   } else {
     const num_mask_mat = await num_mask_mat2Promise;
     num_mask_mat.copyTo(mat, num_mask_mat);
     
     const bubblepredict = await bubblepredictPromise;
     const abcdepredict = await abcdepredictPromise;
-    const answersPromise = predict_horizontal_cas(mat, "ABCDE", bubblepredict, abcdepredict, data.page)
-    .then(([answers, raw_answers]) => {
+    const answersPromise = predict_horizontal_cas(
+      mat,
+      "ABCDE",
+      bubblepredict,
+      abcdepredict,
+      data.page,
+      data.multiAnswerQuestions
+    )
+    .then(([answers, raw_answers, answer_values]) => {
       if ('q' in compare) {
-        const a = answers.split('');
         for (let i = 0; i < 120; i++) {
-          if (a[i].trimEnd() !== compare.q[i + 40]) {
+          if (answer_values[i].trimEnd() !== compare.q[i + 40]) {
             const lat = known_lattices[1][Math.floor(i / 10)];
             let xpos = Math.floor(lat.xstep * 2 + lat.xstart); // Middle of C
             let ypos = Math.floor(lat.ystep * (i % 10) + lat.ystart); // Row
-            diffPromises.push(difference("answers", i + 40, compare.q[i + 40], a[i].trimEnd(), matOriginal, xpos - 380, ypos - 80, xpos + 380, ypos + 80));
+            diffPromises.push(difference("answers", i + 40, compare.q[i + 40], answer_values[i].trimEnd(), matOriginal, xpos - 380, ypos - 80, xpos + 380, ypos + 80));
           }
         }
       }
-      return [answers, raw_answers];
+      return [answers, raw_answers, answer_values];
     });
     const [
-      [answers2, raw_answers2]
+      [answers2, raw_answers2, answer_values2]
     ] = await Promise.all([answersPromise]);
 
-    result = { answers2, raw_answers2 };
+    result = { answers2, answer_values2, raw_answers2 };
   }
 
   const imgQPromises = [];

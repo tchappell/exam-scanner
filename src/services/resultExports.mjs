@@ -1,4 +1,4 @@
-import { calculateScore } from '../examDomain.mjs';
+import { calculateScore, normaliseAnswer } from '../examDomain.mjs';
 
 const QUESTION_COUNT = 160;
 const DEFAULT_UNIT_CODE = 'AAA000';
@@ -14,6 +14,7 @@ function exportSurname(surname) {
 export function buildResultsCsvRows({
   examResults,
   answerKey,
+  multiAnswerQuestions = {},
   pdfName,
   date = new Date(),
   unitCode = DEFAULT_UNIT_CODE
@@ -28,7 +29,7 @@ export function buildResultsCsvRows({
       result.student_number,
       exportSurname(result.surname),
       result.initials.toUpperCase(),
-      calculateScore(result.answers, answerKey),
+      calculateScore(result.answers, answerKey, multiAnswerQuestions),
       filename,
       result.page
     ])
@@ -57,7 +58,7 @@ export function buildRawResultsCsvRows({
       result.initials.replaceAll(' ', '').toUpperCase(),
       filename,
       result.page,
-      ...result.answers.map(answer => answer.trimEnd()),
+      ...result.answers.map(answer => normaliseAnswer(answer).trimEnd()),
       ...Array(Math.max(0, QUESTION_COUNT - result.answers.length)).fill('')
     ])
   ];

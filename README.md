@@ -26,8 +26,8 @@ npm run test:e2e
 ```
 
 `npm test` runs the fast unit tests. `npm run test:e2e` starts Vite and uses the
-installed Microsoft Edge browser to run both recognition fixtures; it takes
-roughly 90 seconds on the current development machine.
+installed Microsoft Edge browser to run the recognition fixtures; it takes a
+few minutes on the current development machine.
 
 ## Characterization fixture
 
@@ -47,7 +47,22 @@ Baseline scan settings:
 
 - one-sided batch: pages 1-10, one page per exam, 40 answer positions
 - two-sided sheet: pages 1-2, one exam, 160 answer positions
-- no marker page
+
+## Multi-answer questions
+
+Enable **Contains multi-answer questions?**, then use the per-question **Multi**
+button in the answer key. Single-answer and multi-answer questions can be mixed
+on the same exam. A multi-answer response earns the question's mark only when
+its selected set exactly matches the keyed set; incomplete answers and answers
+with extra selections score zero.
+
+Internally and in `raw_results.csv`, a selected set is stored in A-E order in
+the existing question column: for example, selecting D and B is exported as
+`BD` in `Q1`. This is a provisional application format because the public QUT
+ACSPRI documentation does not specify the multi-response encoding used by its
+`raw_results.csv`. Generic queXF multiple-choice exports use one column per
+choice, so the CSV formatting remains isolated in `src/services/resultExports.mjs`
+for adjustment when a real ACSPRI multi-answer export becomes available.
 
 ## Current architecture
 
@@ -67,10 +82,9 @@ logic should not be reorganized until its fixture can be exercised automatically
 
 ## Known limitations
 
-- Student responses currently store one answer character per question. An answer
-  key can accept alternatives, but true multiple-response answers are not yet
-  represented or scanned.
 - The recognition bundle is large and initial model loading may take noticeable
   time.
-- The fixtures do not yet cover marker-sheet extraction or true multiple-response
-  answers.
+- The exact QUT ACSPRI CSV representation for multiple-response questions still
+  needs validation against a real service export.
+- Multi-answer questions currently use all-or-nothing exact-set scoring; partial
+  credit policies are not implemented.

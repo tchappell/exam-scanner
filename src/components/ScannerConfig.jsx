@@ -37,6 +37,12 @@ export function ScannerConfig({ config, setConfig, pdf, currentlyScanning }) {
             onChange={setBoolean('hasMarker')} />
         </div>
         <div>
+          <label htmlFor="hasMultiAnswer" class="form-check-label">Contains multi-answer questions?&nbsp;</label>
+          <input autocomplete="off" id="hasMultiAnswer" name="hasMultiAnswer" type="checkbox"
+            class="form-check-input" disabled={currentlyScanning} checked={config.hasMultiAnswer}
+            onChange={setBoolean('hasMultiAnswer')} />
+        </div>
+        <div>
           <label htmlFor="showQuestionable" class="form-check-label">List questionable scans?&nbsp;</label>
           <input autocomplete="off" id="showQuestionable" name="showQuestionable" type="checkbox"
             class="form-check-input" disabled={currentlyScanning} checked={config.showQuestionable}
