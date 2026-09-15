@@ -1511,6 +1511,7 @@ onmessage = async e => {
     case "scan_matrix": func = scan_matrix; break;
   }
   try {
+    if (func === null) throw new Error(`Unknown scanner command: ${e.data.cmd}`);
     const [response, transferables] = await func(e.data);
     postMessage({ id: e.data.id, ...response }, transferables);
   } catch (err) {

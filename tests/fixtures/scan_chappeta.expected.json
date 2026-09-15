@@ -1,0 +1,39 @@
+{
+  "source": {
+    "originalName": "scan_chappeta_2025-08-04-10-57-48-1.pdf",
+    "sizeBytes": 4214835,
+    "description": "Synthetic non-student Test Answer Sheet scan supplied for characterization testing."
+  },
+  "scanConfiguration": {
+    "startAt": 1,
+    "endAt": 10,
+    "twoSided": false,
+    "hasMarker": false,
+    "questionCount": 40
+  },
+  "results": [
+    { "page": 1, "studentNumber": "98754310", "surname": "JOHNSON", "initials": "JJJ", "answers": "DCEBEACDAAACBBBEDCBAECEAB" },
+    { "page": 2, "studentNumber": "04301234", "surname": "ERRORS TEST", "initials": "B C", "answers": "DCBEBCBACEDDDDEDCDEADBECA" },
+    { "page": 3, "studentNumber": "10000000", "surname": "KENNEDY", "initials": "JFK", "answers": "BCD" },
+    { "page": 4, "studentNumber": "  543210", "surname": "H'J-ABC", "initials": "IJ", "answers": "EEEEE" },
+    { "page": 5, "studentNumber": "00123456", "surname": "ABCDEFGHIJKL", "initials": "X", "answers": "EDCBABCDEDCBABCDEDCBABCDE" },
+    { "page": 6, "studentNumber": "209543", "surname": "HYPHEN--NAME", "initials": "ZYX", "answers": "ACEBDEDBECABCBCDCDEDCBABC" },
+    { "page": 7, "studentNumber": "07654321", "surname": "O'MALLEY", "initials": "W", "answers": "EDCBAABBCCDDEEDCBABCDEDCBABCDE" },
+    { "page": 8, "studentNumber": "70706050", "surname": "STUDENT", "initials": "STU", "answers": "DCEBAACDD CEDBCACBCDBAAEE" },
+    { "page": 9, "studentNumber": "9753186", "surname": "SMITH", "initials": "ABC", "answers": "ABBCCCDDDDEEEEEDDDDCCCBBA" },
+    { "page": 10, "studentNumber": "12345678", "surname": "CHAPPELL", "initials": "TA", "answers": "ABCDEABCDEABCDEABCDEABCDE" }
+  ],
+  "questionable": [
+    { "page": 1, "question": 1, "scannedAnswer": "D" },
+    { "page": 1, "question": 22, "scannedAnswer": "C" },
+    { "page": 2, "question": 14, "scannedAnswer": "D" },
+    { "page": 8, "question": 11, "scannedAnswer": "C" },
+    { "page": 8, "question": 16, "scannedAnswer": "A" },
+    { "page": 8, "question": 21, "scannedAnswer": "B" },
+    { "page": 8, "question": 25, "scannedAnswer": "E" },
+    { "page": 8, "question": 26, "scannedAnswer": " " },
+    { "page": 8, "question": 35, "scannedAnswer": " " },
+    { "page": 10, "question": 10, "scannedAnswer": "E" },
+    { "page": 10, "question": 20, "scannedAnswer": "E" }
+  ]
+}

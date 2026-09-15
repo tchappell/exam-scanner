@@ -5,6 +5,8 @@ import 'pdfjs-dist/build/pdf.worker.mjs';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import JSZip from 'jszip';
 import { loadCSV, createCSV } from './util/csv.mjs';
+import { calculateScore, fixAnswers, normaliseStudentNum } from './examDomain.mjs';
+import { createScannerClient } from './scannerClient.mjs';
 import { get as levenshtein } from 'fast-levenshtein';
 import uploadMarks from './uploadMarks.txt?raw';
 
@@ -17,29 +19,8 @@ GlobalWorkerOptions.workerPort = pdfjsWorker;
 const scannerWorker = new Worker(
   new URL('./scannerWorker.js', import.meta.url), { type: 'module' }
 );
-
-let _nextId = 1;
-const pending = new Map();
-scannerWorker.onmessage = e => {
-  if (!pending.has(e.data.id)) {
-    console.log("Invalid message:", e.data);
-    throw new Error("Invalid message received");
-  }
-  const promise = pending.get(e.data.id);
-  if ('error' in e.data) {
-    promise.reject(new Error(e.data.error));
-  }
-  promise.resolve(e.data);
-  pending.delete(e.data.id);
-};
-
-const invokeScanner = (cmd, data, transferables = []) => {
-  let id = _nextId++;
-  return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
-    scannerWorker.postMessage({ id, cmd, ...data }, transferables);
-  });
-};
+const scannerClient = createScannerClient(scannerWorker);
+const invokeScanner = scannerClient.invoke;
 
 const range = (st, ed = null) => ed === null ? [...Array(st).keys()] : [...(Array(ed - st).keys().map(v => v + st))];
 
@@ -539,33 +520,6 @@ function AnswerKey({ cfg, setCfg, pdf, currentlyScanning }) {
   </>
   );
 }
-
-const calculateScore = (answers, answerKey) => {
-  let score = 0;
-  for (let i = 0; i < answers.length; i++) {
-    if (i in answerKey) {
-      if (answers[i] in answerKey[i]) {
-        if (answerKey[i][answers[i]]) {
-          score++;
-        }
-      }
-    }
-  }
-
-  return score;
-};
-
-const normaliseStudentNum = (sn) => {
-  const s = `${sn}`.trim();
-  if (s === '' || isNaN(s)) return null;
-  return Number.parseInt(s);
-};
-
-const PADDING_160 = Array(160).fill(" ");
-const fixAnswers = (cfg, answers) => {
-  let count = cfg.twoSided ? 160 : 40;
-  return answers.concat(PADDING_160).slice(0, count);
-};
 
 const setResultFields = (setExamResults, i, fields) => {
   if (typeof fields === 'function') {
@@ -1366,6 +1320,7 @@ export function App() {
   const [matchSelect, setMatchSelect] = useState(null);
   const [marksPerQuestion, setMarksPerQuestion] = useState(1);
   const [importCSVPage1, setImportCSVPage1] = useState(1);
+  const [scanIssues, setScanIssues] = useState([]);
 
   //const [cv, setCv] = useState(null);
   //const [templateImages, setTemplateImages] = useState([]);
@@ -1388,6 +1343,19 @@ export function App() {
   const diffInitials = diffs.filter(diff => diff.field === "initials");
 
   const currentlyScanning = progress !== null;
+
+  const reportScanIssue = (stage, error, page = null) => {
+    const message = error instanceof Error ? error.message : `${error}`;
+    console.error(`${stage}${page === null ? '' : ` (page ${page})`}:`, error);
+    setScanIssues(previous => [
+      ...previous,
+      { stage, page, message }
+    ]);
+  };
+
+  useEffect(() => scannerClient.subscribeToDiagnostics(error => {
+    reportScanIssue('Scanner worker', error);
+  }), []);
 
   const examResultMatches = new Map();
   const unmatchedExamResults = [];
@@ -1654,6 +1622,7 @@ export function App() {
     const totalExams = Math.ceil(totalPages / pagesPerExam);
     setProgress([0, totalExams]);
     setExamResults([]);
+    setScanIssues([]);
 
     let answerKey = cfg.answerKey;
 
@@ -1720,8 +1689,9 @@ export function App() {
           ]);
         }
       } catch (e) {
-        console.log(e);
-        // Error, skip page
+        reportScanIssue('Could not scan exam', e, currentPage);
+        // Preserve the existing behaviour: report the failure and continue with
+        // the next exam instead of discarding all successfully scanned pages.
       }
 
       // Onto next page
@@ -1738,12 +1708,17 @@ export function App() {
   const pdfSelected = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const data = new Uint8Array(await file.arrayBuffer());
-    const pdf = await getDocument({ data }).promise;
-    setPdfName(file.name);
-    setPdf(pdf);
-    setPdfPage(1);
-    setCfg(cfg => ({ ...cfg, endAt: pdf.numPages }));
+    try {
+      const data = new Uint8Array(await file.arrayBuffer());
+      const pdf = await getDocument({ data }).promise;
+      setPdfName(file.name);
+      setPdf(pdf);
+      setPdfPage(1);
+      setCfg(cfg => ({ ...cfg, endAt: pdf.numPages }));
+      setScanIssues([]);
+    } catch (error) {
+      reportScanIssue('Could not open PDF', error);
+    }
   };
   const pdfDeselected = e => {
     if (currentlyScanning) return;
@@ -1845,6 +1820,27 @@ export function App() {
         </div>
       </div>
 
+      {scanIssues.length === 0 ? <></> :
+        <div class="alert alert-danger" role="alert" aria-live="polite">
+          <div class="d-flex justify-content-between align-items-start gap-3">
+            <div>
+              <p class="fw-bold mb-1">
+                {scanIssues.length === 1 ? 'The scanner reported a problem.' : `The scanner reported ${scanIssues.length} problems.`}
+              </p>
+              <p class="mb-2">Successful pages have been kept. Check the details below before using or exporting the results.</p>
+            </div>
+            <button type="button" class="btn-close" aria-label="Dismiss scanner problems" onClick={() => setScanIssues([])}></button>
+          </div>
+          <ul class="mb-0">
+            {scanIssues.map((issue, index) =>
+              <li key={index}>
+                {issue.stage}{issue.page === null ? '' : ` — page ${issue.page}`}: {issue.message}
+              </li>
+            )}
+          </ul>
+        </div>
+      }
+
       <div class="row">
         {progress === null ? <></> :
           <><div>Scanning exams... {progress[0]}/{progress[1]}</div>
@@ -1879,7 +1875,7 @@ export function App() {
                 ]
               )
             ];
-            const blob = new Blob([csv.map(csv_row => csv_row.join(",")).join("\n")], { type: 'text/csv' });
+            const blob = new Blob([createCSV(csv)], { type: 'text/csv' });
             download_file("results.csv", blob);
           }}>Export results.csv (contains grades, but not individual answers)</button>
         </div>
@@ -1905,7 +1901,7 @@ export function App() {
               )
             ];
 
-            const blob = new Blob([csv.map(csv_row => csv_row.join(",")).join("\n")], { type: 'text/csv' });
+            const blob = new Blob([createCSV(csv)], { type: 'text/csv' });
             download_file("raw_results.csv", blob);
           }}>Export raw_results.csv (contains individual answers)</button>
         </div>
