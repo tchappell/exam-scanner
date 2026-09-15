@@ -1,0 +1,119 @@
+const COMMENT = '<p>See attached PDF for details.</p>';
+const PROGRESS_BAR_LEN = 20;
+
+const fs = require('node:fs/promises');
+
+const OPTIONS = {
+  headers: {
+    'Authorization': `Bearer ${API_KEY}`,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json+canvas-string-ids'
+  }
+};
+
+(async () => {
+  const grade = async (user_id, score, hash, attachment) => {
+    const filename = `exam_scan_${hash}.pdf`;
+    const url = `https://canvas.qut.edu.au/api/v1/courses/${COURSE_ID}/assignments/${ASSIGNMENT_ID}/submissions/${user_id}?include[]=submission_html_comments`;
+
+    const res = await fetch(url, {method: "GET", ...OPTIONS});
+    if (!res.ok) {
+      throw new Error(`Received ${res.status}: ${res.statusText} from ${url}\n${await res.text()}`);
+    }
+    const submission = await res.json();
+    const submission_comments = submission.submission_html_comments.filter(c => c.comment === COMMENT);
+
+    // Delete every submission comment with:
+    // - an attachment with the wrong filename
+    // - the wrong score
+    let canReuse = false;
+    for (const comment of submission_comments) {
+      if (submission.grade !== score ||
+        comment?.attachments?.[0]?.filename !== filename) {
+        // Delete all attachments of this comment
+        for (const attachment of (comment?.attachments ?? [])) {
+          const url = `https://canvas.qut.edu.au/api/v1/files/${attachment.id}`;
+          const res = await fetch(url, {method: "DELETE", ...OPTIONS});
+          if (!res.ok) {
+            throw new Error(`Received ${res.status}: ${res.statusText} from ${url}\n${await res.text()}`);
+          }
+        }
+        
+        { // Delete the comment itself
+          const url = `https://canvas.qut.edu.au/api/v1/courses/${COURSE_ID}/assignments/${ASSIGNMENT_ID}/submissions/${user_id}/comments/${comment.id}`;
+          const res = await fetch(url, {method: "DELETE", ...OPTIONS});
+          if (!res.ok) {
+            throw new Error(`Received ${res.status}: ${res.statusText} from ${url}\n${await res.text()}`);
+          }
+        }
+      } else {
+        canReuse = true;
+      }
+    }
+    if (!canReuse) {
+      let file_id;
+      { // Upload PDF attachment
+        const fileBlob = new Blob([await fs.readFile(attachment)]);
+
+        const fileinfo = {
+          name: filename,
+          size: fileBlob.size
+        };
+        const url = `https://canvas.qut.edu.au/api/v1/courses/${COURSE_ID}/assignments/${ASSIGNMENT_ID}/submissions/${user_id}/comments/files`;
+        const res = await fetch(url, {method: "POST", body: JSON.stringify(fileinfo), ...OPTIONS});
+        if (!res.ok) {
+          throw new Error(`Received ${res.status}: ${res.statusText} from ${url}\n${await res.text()}`);
+        }
+        const uploadresult = await res.json();
+        let formdata = new FormData();
+        for (let k in uploadresult.upload_params) {
+          formdata.append(k, uploadresult.upload_params[k]);
+        }
+        formdata.append("file", fileBlob);
+        const fetchresponse = await fetch(uploadresult.upload_url,
+          {
+            method: 'POST',
+            body: formdata
+          }
+        );
+        if (!fetchresponse.ok) {
+          throw new Error(`Received ${fetchresponse.status}: ${fetchresponse.statusText} from ${uploadresult.upload_url}\n${await fetchresponse.text()}`);
+        }
+        const fetchresponsedata = await fetchresponse.json();
+        file_id = fetchresponsedata.id;
+      }
+
+      { // Post comment
+        const putbody = {
+          comment: {
+            'text_comment': COMMENT,
+            'file_ids': [file_id],
+            'attempt': submission.attempt
+          },
+          submission: {
+            'posted_grade': Number.parseFloat(score)
+          }
+        };
+        
+        const url = `https://canvas.qut.edu.au/api/v1/courses/${COURSE_ID}/assignments/${ASSIGNMENT_ID}/submissions/${user_id}`;
+        const res = await fetch(url, {method: "PUT", body: JSON.stringify(putbody), ...OPTIONS});
+        if (!res.ok) {
+          throw new Error(`Received ${res.status}: ${res.statusText} from ${url}\n${await res.text()}`);
+        }
+      }
+    }
+  };
+
+  process.stdout.write(`Uploading grades and exam scans\n[${' '.repeat(PROGRESS_BAR_LEN)}]\r[`);
+  let students_graded = 0, progress = 0;
+  for (const g of GRADES) {
+    await grade(...g);
+    students_graded++;
+    const new_progress = Math.floor(students_graded * PROGRESS_BAR_LEN / GRADES.length);
+    while (new_progress > progress) {
+      process.stdout.write('.');
+      progress++;
+    }
+  }
+  process.stdout.write("]\n");
+})();

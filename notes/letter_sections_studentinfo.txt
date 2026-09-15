@@ -1,0 +1,46 @@
+Surname letters:
+
+697,302  (-25 from lattice)
+768,302  (
+839,302
+908
+981
+1052
+1123
+1192
+
+
+1287,301  (-25 from lattice)
+1357
+1428
+1499
+1570
+1641
+1712
+1783
+1854
+1925
+1996
+2067
+
+2172     (-30 from lattice)
+2244
+2314
+
+59x105
+58x105
+-8,-8?
+
+Try -27, -146 from lattice (then +4 +4, and copy 50x96)
+
+---
+
+Bubbles:
+
+-189,-43 from bubble lattice
+
+166x89
+
+Cut 4 off from each side:
+
+-185,-39, 158x81

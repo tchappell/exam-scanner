@@ -1,0 +1,1712 @@
+
+  const predict_initials = async (images, size, answer_key, prefix) => {
+    //const answer_key = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let answers = [];
+    let idx = 0;
+    for (const image of images) {
+      const grey = new cv.Mat();
+      cv.resize(image, grey, size);
+
+      const blurred = new cv.Mat();
+      cv.GaussianBlur(grey, blurred, new cv.Size(5, 5), 0);
+
+      const thresh = new cv.Mat();
+      cv.threshold(blurred, thresh, 25, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
+
+      // Contours
+      const contours = new cv.MatVector();
+      const hierarchy = new cv.Mat();
+      cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+      const filteredContours = filterContours2(contours);
+      hierarchy.delete();
+      contours.delete();
+      // Hough circles
+      let circlesMat = new cv.Mat();
+      cv.HoughCircles(
+        grey,
+        circlesMat,
+        cv.HOUGH_GRADIENT,
+        1, // dp
+        15, // minDist
+        40, // param1 (higher threshold for Canny edge detector)
+        25, // param2 (accumulator threshold)
+        10, // minRadius
+        40  // maxRadius
+      );
+
+      // Filter circles based on radius size and y thresholds
+      let filteredCircles = convertCircles(circlesMat);
+      let allCircles = combineContours(filteredCircles, filteredContours);
+      let uniqueCircles = getUniqueCircles2(allCircles);
+      uniqueCircles.sort((a, b) => a[1] - b[1]);
+
+      // let dst = grey.clone();
+      // let color = new cv.Scalar(0, 0, 0);
+      // for (let i = 0; i < uniqueCircles.length; i++) {
+      //   const x = uniqueCircles[i][0];
+      //   const y = uniqueCircles[i][1];
+      //   const r = uniqueCircles[i][2];
+      //   let center = new cv.Point(x, y);
+      //   cv.circle(dst, center, r, color);
+      // }
+      // let blob = await matToBlobURL(dst);
+      // dst.delete();
+      // setOutURIs(prev => prev.concat([blob]));
+
+      let filled = detectFilledInBubbles(uniqueCircles, grey, answer_key);
+
+      let answer = await predictAnswer(filled, null, null);
+      answers.push(answer);
+
+      //await dbg_zip_bubble_images(image, filled, 0, 65.037, `${prefix}_${idx}`);
+
+      /*
+      Promise.all(
+        initials_images.map(img => matToBlobURL(img))
+      )
+      .then(outs => setOutURIs(outs));
+      */
+
+
+      grey.delete();
+      blurred.delete();
+      thresh.delete();
+      circlesMat.delete();
+      idx++;
+    }
+    return answers.join("").trimEnd();
+  };
+
+  const predict_answers = async (images, size, answer_key, tesseract, prefix) => {
+    let answers = [];
+    const resized = new cv.Mat();
+    const blurred = new cv.Mat();
+    const thresh = new cv.Mat();
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    const circlesMat = new cv.Mat();
+    let idx = 0;
+    for (const image of images) {
+
+      cv.resize(image, resized, size);
+
+      // Remove 10px from top and bottom
+      const cropped = resized.roi(new cv.Rect(0, 10, resized.cols, resized.rows - 20));
+
+      // Left part (letter region)
+      const leftPart = resized.roi(new cv.Rect(12, 0, 52, resized.rows)); // width = 64 - 12 = 52
+
+      // Right part (bubbles section)
+      const rightPart = cropped.roi(new cv.Rect(65, 0, cropped.cols - 65, cropped.rows));
+
+
+      cv.GaussianBlur(rightPart, blurred, new cv.Size(5, 5), 0);
+
+
+      cv.threshold(blurred, thresh, 25, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
+
+      // Contours
+
+      cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+      const filteredContours = filterContours2(contours);
+      // Hough circles
+
+      cv.HoughCircles(
+        rightPart,
+        circlesMat,
+        cv.HOUGH_GRADIENT,
+        1, // dp
+        15, // minDist
+        40, // param1 (higher threshold for Canny edge detector)
+        25, // param2 (accumulator threshold)
+        10, // minRadius
+        40  // maxRadius
+      );
+
+      // Filter circles based on radius size and y thresholds
+      let filteredCircles = convertCircles(circlesMat);
+      let allCircles = combineContours(filteredCircles, filteredContours);
+      let uniqueCircles = getUniqueCircles2(allCircles);
+      uniqueCircles.sort((a, b) => a[0] - b[0]);
+
+      // let dst = rightPart.clone();
+      // let color = new cv.Scalar(0, 0, 0);
+      // for (let i = 0; i < uniqueCircles.length; i++) {
+      //   const x = uniqueCircles[i][0];
+      //   const y = uniqueCircles[i][1];
+      //   const r = uniqueCircles[i][2];
+      //   let center = new cv.Point(x, y);
+      //   cv.circle(dst, center, r, color);
+      // }
+      // let blob = await matToBlobURL(dst);
+      // dst.delete();
+      // setOutURIs(prev => prev.concat([blob]));
+
+      let filled = detectFilledInBubbles(uniqueCircles, rightPart, answer_key);
+
+      let answer = await predictAnswer(filled, leftPart, tesseract);
+      answers.push(answer);
+
+      //await dbg_zip_bubble_images_ans(image, filled, 95, 0, `${prefix}_${idx}`);
+
+      //const imgs = [await matToBlobURL(resized), await matToBlobURL(leftPart)];
+      //setOutURIs(prev => prev.concat(imgs));
+
+      /*
+      Promise.all(
+        initials_images.map(img => matToBlobURL(img))
+      )
+      .then(outs => setOutURIs(outs));
+      */
+
+      cropped.delete();
+      leftPart.delete();
+      rightPart.delete();
+      idx++;
+    }
+    resized.delete();
+    blurred.delete();
+    thresh.delete();
+    circlesMat.delete();
+    hierarchy.delete();
+    contours.delete();
+
+
+    // Answers appear left to right, top to bottom
+    // We need to put these in the proper order
+    // answer   reordered
+    // 0        0
+    // 1        10
+    // 2        20
+    // 3        30
+    // 4        1
+    // 5        11
+    // 6        21
+    // 7        31
+    // ...
+    // 36       9
+    // 37       19
+    // 38       29
+    // 39       39
+    // 40       40
+    // 41       70
+
+    const reordered_answers = [];
+    reordered_answers.length = answers.length;
+    for (let i = 0; i < answers.length; i++) {
+      let major_group = Math.floor(i / 40);
+      let column = i % 4;
+      let row = Math.floor(i / 4) % 10;
+
+      let new_i = major_group * 40 + column * 10 + row;
+      reordered_answers[new_i] = answers[i];
+    }
+    return reordered_answers.join("");
+  };
+
+  
+  function filter_detected_bubbles(filteredRows) {
+    // Filter out unwanted bubbles from rows based on X-coordinate
+    let filteredBubbles = [];
+
+    for (const row of filteredRows) {
+      const filteredRow = [];
+      for (const element of row) {
+        const x = parseInt(element[0]);
+        if (
+          !(1200 < x && x < 1340) &&
+          !(610 < x && x < 740) &&
+          !(1800 < x && x < 1900)
+        ) {
+          filteredRow.push(element);
+        }
+      }
+      filteredBubbles.push(filteredRow);
+    }
+
+    // Remove any bubbles less than 140 pixels from the left
+    filteredBubbles = filteredBubbles.map(row =>
+      row.filter(element => element[0] >= 140)
+    );
+
+    return filteredBubbles;
+  }
+
+  function fill_missing_bubbles(filteredDa, expectedXPositions = null, tolerance = 20) {
+    if (expectedXPositions === null) {
+      expectedXPositions = [
+        192, 288, 382, 474, 572, 784, 880, 974, 1066, 1162,
+        1374, 1470, 1564, 1658, 1752, 1966, 2060, 2156, 2248, 2346
+      ];
+    }
+
+    const finalResult = [];
+
+    for (const row of filteredDa) {
+      // sort row by x
+      const r = row.slice().sort((a, b) => a[0] - b[0]);
+      const filledRow = [];
+
+      if (r.length < expectedXPositions.length) {
+        for (const expectedX of expectedXPositions) {
+          const match = r.find(bubble => Math.abs(bubble[0] - expectedX) <= tolerance);
+          if (match) {
+            filledRow.push(match);
+          } else {
+            const avgY = Math.floor(r.reduce((sum, b) => sum + b[1], 0) / r.length);
+            filledRow.push([expectedX, avgY, 22]);
+          }
+        }
+      } else {
+        filledRow.push(...r);
+      }
+
+      finalResult.push(filledRow);
+    }
+
+    return finalResult;
+  }
+
+  function filter_valid_groups(finalGroups, minVerticalSpacing = 86) {
+    const validGroups = [];
+    let prevY = null;
+
+    for (const group of finalGroups) {
+      if (!group || group.length === 0) continue; // skip empty groups
+
+      const y = group[0][1]; // Y-coordinate of the first bubble
+      if (prevY === null) {
+        validGroups.push(group);
+        prevY = y;
+      } else {
+        const diff = Math.abs(y - prevY);
+        if (diff >= minVerticalSpacing) {
+          validGroups.push(group);
+          prevY = y;
+        }
+      }
+    }
+
+    return validGroups;
+  }
+
+  function group_by_columns(rows, threshold = 150) {
+    const allColumnGroups = [];
+
+    for (let row of rows) {
+      // sort by x (first element)
+      row = row.slice().sort((a, b) => a[0] - b[0]);
+
+      const columns = [];
+      let currentCol = [];
+
+      for (const circle of row) {
+        if (currentCol.length === 0) {
+          currentCol.push(circle);
+        } else if (Math.abs(parseInt(circle[0]) - parseInt(currentCol[currentCol.length - 1][0])) <= threshold) {
+          currentCol.push(circle);
+        } else {
+          columns.push(currentCol);
+          currentCol = [circle];
+        }
+      }
+
+      if (currentCol.length > 0) columns.push(currentCol);
+      allColumnGroups.push(columns);
+    }
+
+    return allColumnGroups;
+  }
+
+
+  const get_circles_from_lattice = lattice => {
+    const circles = [];
+    for (let row = 0; row < lattice.rows; row++) {
+      for (let col = 0; col < lattice.cols; col++) {
+        circles.push([col * lattice.xstep + lattice.xstart, row * lattice.ystep + lattice.ystart, 22.5]);
+      }
+    }
+    return circles;
+  };
+
+    const dbg_zip_bubble_images = async (image, filled, xstep, ystep, prefix) => {
+    for (let i = 0; ; i++) {
+      const x = Math.floor(i * xstep);
+      const y = Math.floor(i * ystep);
+      if (x + 60 > image.cols || y + 60 > image.rows) break;
+      let roi = image.roi(new cv.Rect(x, y, 60, 60));
+      let loc = "empty";
+
+      if (i in filled) {
+        if (filled[i].crossed) loc = "crossed";
+        else loc = "filled";
+      }
+      if (loc === "crossed")
+        zip.file(loc + "/" + prefix + "_" + i + ".png", await matToBlob(roi));
+      roi.delete();
+    }
+  };
+  const dbg_zip_bubble_images_ans = async (image, filled, xstep, ystep, prefix) => {
+    for (let i = 0; ; i++) {
+      const x = Math.floor(i * xstep) + 52;
+      const y = Math.floor(i * ystep);
+      if (x + 102 > image.cols || y + 80 > image.rows) break;
+      let roi = image.roi(new cv.Rect(x + 10, y + 10, 60, 60));
+      let loc = "empty";
+
+      if (i in filled) {
+        if (filled[i].crossed) loc = "crossed";
+        else loc = "filled";
+      }
+      if (loc === "crossed")
+        zip.file(loc + "/" + prefix + "_" + i + ".png", await matToBlob(roi));
+      roi.delete();
+    }
+  };
+
+    const predictAnswer = async (filled, left_part, tesseract) => {
+    const candidates = CheckCrossedBubbles(filled);
+    // Don't use tesseract unless we actually have a crossed bubble
+    if (left_part !== null && candidates.length > 0) {
+      const cropped = left_part.roi(new cv.Rect(0, 5, left_part.cols, left_part.rows - 10));
+      const blurred = new cv.Mat();
+      cv.GaussianBlur(cropped, blurred, new cv.Size(5, 5), 0);
+      const thresh = new cv.Mat();
+      cv.threshold(blurred, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+
+      const kernel = cv.Mat.ones(1, 1, cv.CV_8U);
+      const clean = new cv.Mat();
+      cv.morphologyEx(thresh, clean, cv.MORPH_OPEN, kernel);
+      const blob = await matToBlobURL(clean);
+
+      //const originalWarn = console.warn;
+      //console.warn = (...args) => {};
+      const result = await tesseract.recognize(blob);
+      blurred.delete();
+      thresh.delete();
+      clean.delete();
+      kernel.delete();
+      //console.warn = originalWarn;
+      URL.revokeObjectURL(blob);
+
+      // const symbols = result.data.symbols || [];
+      // const topConfidence = symbols.length ? Math.max(...symbols.map(s => s.confidence)) : 0;
+
+      const text = result.data.text.trim();
+
+      if (text && text.length === 1) {
+        //console.log("TESSERACT DETECTED", text);
+        // Use the tesseract if there are only crossed bubbles
+        let notOnlyCrossed = false;
+        for (let k in filled) {
+          if (filled[k]["filled"] && !filled[k]["crossed"]) {
+            notOnlyCrossed = true;
+            break;
+          }
+        }
+        if (!notOnlyCrossed)
+          return text;
+      }
+    }
+
+    if (Object.keys(filled).length > 1) {
+      // No letter entered, so pick best choice
+      let best_choice = null;
+      let min_radius = Infinity;
+      for (const k in filled) {
+        const info = filled[k];
+        const r = info["circle"][2];
+        if (r < min_radius) {
+          min_radius = r;
+          best_choice = k;
+        }
+      }
+
+      if (candidates.length === 0) {
+        /*
+        Check if filled in bubbles has a larger enough a difference in size
+        compared to the best choice (Smallest bubble) to make it a
+        crossed out circle. Return the best choice if it is
+        Threshold is set to 6 but can be change
+        */
+        for (const k in filled) {
+          if (Math.abs(filled[best_choice]["circle"][2] - filled[k]["circle"][2]) >= 6) {
+            return filled[best_choice]["key"];
+          }
+          return " ";
+        }
+      } else {
+        return filled[best_choice]["key"];
+      }
+    }
+    if (Object.keys(filled).length === 1) {
+      const k = Object.keys(filled)[0];
+      return filled[k]["key"];
+    }
+    return " ";
+  };
+
+  
+  const CheckCrossedBubbles = (filled) => {
+    const candidates = [];
+    const CROSSED_RADIUS_THRESHOLD = 35;
+    for (const k in filled) {
+      const current = filled[k];
+      if (current["filled"] === true) {
+        if (current["circle"][2] > CROSSED_RADIUS_THRESHOLD) {
+          filled[k]["crossed"] = true;
+          candidates.push(k);
+        } else {
+          filled[k]["crossed"] = false;
+        }
+      }
+    }
+    return candidates;
+  };
+
+  
+  const detectFilledInBubbles = (unique_circles, grey, answer_key) => {
+    const filled = {};
+    for (let i = 0; i < unique_circles.length; i++) {
+      const c = unique_circles[i];
+      const [x, y, radius] = c;
+      const padding = 5;
+      const top_left_x = Math.max(x - radius - padding, 0);
+      const top_left_y = Math.max(y - radius - padding, 0);
+      const bottom_right_x = Math.min(x + radius + padding, grey.cols);
+      const bottom_right_y = Math.min(y + radius + padding, grey.rows);
+
+      const cropped_grey = grey.roi(new cv.Rect(top_left_x, top_left_y, bottom_right_x - top_left_x, bottom_right_y - top_left_y));
+      const binary_image = new cv.Mat();
+      cv.threshold(cropped_grey, binary_image, 150, 255, cv.THRESH_BINARY);
+
+      // Morphological closing (fills small holes and connects nearby white regions)
+      const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+      const closing = new cv.Mat();
+      cv.morphologyEx(binary_image, closing, cv.MORPH_CLOSE, kernel);
+
+      // Count black pixels (value 0)
+      const black_pixel_count = closing.rows * closing.cols - cv.countNonZero(closing);
+      if (black_pixel_count > 350) {
+        filled[i] = {
+          "filled": true,
+          "circle": c,
+          "crossed": false,
+          "key": answer_key[i]
+        };
+      }
+
+      // Cleanup
+      kernel.delete();
+      closing.delete();
+      binary_image.delete();
+      cropped_grey.delete();
+    }
+    return filled;
+  };
+
+  const crop_question_regions = (image, row_groups) => {
+    const cropped_images = [];
+
+    const horizontal_padding_left = 92;
+    const horizontal_padding_right = 102;
+    const vertical_padding_top = 40;
+    const vertical_padding_bottom = 40;
+    //matToBlobURL(image).then(blob => setOutURIs([blob]));
+
+    for (const row of row_groups) {
+      //console.log(row);
+      for (const column of row) {
+        let min_x = Math.min(...column.map(circle => circle[0]));
+        let max_x = Math.max(...column.map(circle => circle[0]));
+        let min_y = Math.min(...column.map(circle => circle[1]));
+        let max_y = Math.max(...column.map(circle => circle[1]));
+
+        min_x = Math.max(0, min_x - horizontal_padding_left);
+        max_x = Math.min(image.cols, max_x + horizontal_padding_right);
+        min_y = Math.max(0, min_y - vertical_padding_top);
+        max_y = Math.min(image.rows, max_y + vertical_padding_bottom);
+        //console.log("Cropping", min_x, max_x, min_y, max_y, image.cols, image.rows);
+
+        const rect = new cv.Rect(min_x, min_y, max_x - min_x, max_y - min_y);
+        const cropped_region = image.roi(rect);
+        //console.log("Cropped");
+        cropped_images.push(cropped_region);
+      }
+    }
+    return cropped_images;
+  };
+
+
+  const crop_info_regions = (image, column_groups) => {
+    const cropped_images = [];
+
+    const horizontal_padding_left = 30;
+    const horizontal_padding_right = 30;
+    const vertical_padding_top = 30;
+    const vertical_padding_bottom = 30;
+    //console.log(column_groups);
+
+    for (const column of column_groups) {
+      let min_x = Math.min(...column.map(circle => circle[0]));
+      let max_x = Math.max(...column.map(circle => circle[0]));
+      let min_y = Math.min(...column.map(circle => circle[1]));
+      let max_y = Math.max(...column.map(circle => circle[1]));
+
+      min_x = Math.max(0, min_x - horizontal_padding_left);
+      max_x = Math.min(image.cols, max_x + horizontal_padding_right);
+      min_y = Math.max(0, min_y - vertical_padding_top);
+      max_y = Math.min(image.rows, max_y + vertical_padding_bottom);
+      const rect = new cv.Rect(min_x, min_y, max_x - min_x, max_y - min_y);
+      const cropped_region = image.roi(rect);
+      cropped_images.push(cropped_region);
+    }
+    return cropped_images;
+  };
+
+  // Group set of bubbles by row (simlar y coords with margin of 30 pixels default)
+  const group_by_rows = data => {
+    const threshold = 30;
+    data.sort((a, b) => a[1] - b[1]);
+    const row_groups = [];
+    const current_row = [];
+    for (const c of data) {
+      if (current_row.length === 0) {
+        current_row.push(c);
+      } else if (Math.abs(c[1] - current_row[current_row.length - 1][1]) <= threshold) {
+        current_row.push(c);
+      } else {
+        row_groups.push(current_row.slice());
+        current_row.length = 0;
+        current_row.push(c);
+      }
+    }
+    if (current_row.length > 0)
+      row_groups.push(current_row);
+    return row_groups;
+  };
+
+  const sort_by_columns = data => {
+    const threshold = 15;
+    data.sort((a, b) => a[0] - b[0]);
+    const column_groups = [];
+    const current_column = [];
+    for (const c of data) {
+      if (current_column.length === 0) {
+        current_column.push(c);
+      } else if (Math.abs(c[0] - current_column[current_column.length - 1][0]) <= threshold) {
+        current_column.push(c);
+      } else {
+        column_groups.push(current_column.slice());
+        current_column.length = 0;
+        current_column.push(c);
+      }
+    }
+    if (current_column.length > 0)
+      column_groups.push(current_column);
+    return column_groups;
+  };
+
+    const getUniqueCircles2 = circles => {
+    let unique_circles = [];
+    for (let i = 0; i < circles.length; i++) {
+      const [x1, y1, r1] = circles[i];
+      let too_close = false;
+      let too_close_to = -1;
+
+      for (let j = 0; j < unique_circles.length; j++) {
+        const [x2, y2, r2] = unique_circles[j];
+
+        const dist = Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2);
+        if (dist <= Math.pow(25, 2)) {
+          too_close = true;
+          if (r1 > r2)
+            too_close_to = j;
+          break;
+        }
+      }
+      if (!too_close) {
+        unique_circles.push(circles[i]);
+      } else {
+        if (too_close_to !== -1) {
+          unique_circles[too_close_to] = circles[i];
+        }
+      }
+    }
+    return unique_circles;
+  };
+
+
+  const getUniqueCircles = circles => {
+    let unique_circles = [];
+    for (let i = 0; i < circles.length; i++) {
+      const [x1, y1, r1] = circles[i];
+      let too_close = false;
+
+      for (let j = 0; j < unique_circles.length; j++) {
+        const [x2, y2, r2] = unique_circles[j];
+
+        const dist = Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2);
+        if (dist <= Math.pow(15, 2)) {
+          too_close = true;
+          break;
+        }
+      }
+      if (!too_close) {
+        unique_circles.push(circles[i]);
+      }
+    }
+    return unique_circles;
+  };
+
+  const filterCircles = (circles, hmin, hmax, vmin, vmax) => {
+    const finalCircles = [];
+
+    for (let i = 0; i < circles.cols; i++) {
+      const x = Math.round(circles.data32F[i * 3]);
+      const y = Math.round(circles.data32F[i * 3 + 1]);
+      const r = Math.round(circles.data32F[i * 3 + 2]);
+
+      if (r >= 17 && r <= 35 &&
+        x > hmin && x < hmax &&
+        y > vmin && y < vmax) {
+        finalCircles.push([x, y, r]);
+      }
+    }
+
+    return finalCircles;
+  };
+
+  
+  const filterContours = contours => {
+    const finalContours = [];
+
+    for (let i = 0; i < contours.size(); i++) {
+      const cnt = contours.get(i);
+
+      // area
+      const area = cv.contourArea(cnt);
+      if (area > 800 && area < 2000) {
+        const circle = cv.minEnclosingCircle(cnt);
+        // circle.center = {x, y}, circle.radius = number
+        finalContours.push([circle.center.x, circle.center.y, circle.radius]);
+      }
+
+      cnt.delete();
+    }
+
+    // round and convert to int32
+    const result = finalContours.map(c => c.map(v => Math.round(v)));
+
+    return result;
+  };
+  const combineContours = (circles, contours) => {
+    const filtered = [];
+    for (const c of circles.concat(contours)) {
+      if (c[0] <= 450) filtered.push(c);
+    }
+    return filtered;
+  }
+  const filterContours2 = contours => {
+    const finalContours = [];
+
+    for (let i = 0; i < contours.size(); i++) {
+      const cnt = contours.get(i);
+
+      // area
+      const area = cv.contourArea(cnt);
+      const length = cv.arcLength(cnt, true);
+      if (area > 500 && length < 500) {
+        const circle = cv.minEnclosingCircle(cnt);
+        // circle.center = {x, y}, circle.radius = number
+        finalContours.push([circle.center.x, circle.center.y, circle.radius]);
+      }
+
+      cnt.delete();
+    }
+    const result = finalContours.map(c => c.map(v => Math.round(v)));
+
+    return result;
+  };
+
+
+
+-------------
+Dead code removed from scanExams:
+
+      // Show cropped bottom right circle
+      // {
+      //   const matroi = mat.roi(new cv.Rect(2291, 3159, 108, 108));
+      //   dbgOutputAppend(await matToBlobURL(matroi));
+      //   matroi.delete();
+      // }
+
+      // Blur
+      //cv.GaussianBlur(mat, blurredMat, new cv.Size(5, 5), 0);
+
+      //cv.threshold(blurredMat, threshMat, 150, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
+
+      // Contours
+      //cv.findContours(threshMat, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+      //const filteredContours = filterContours(contours);
+
+
+      // Hough circles
+      // cv.HoughCircles(
+      //   blurredMat,
+      //   circlesMat,
+      //   cv.HOUGH_GRADIENT,
+      //   1, // dp
+      //   15, // minDist
+      //   40, // param1 (higher threshold for Canny edge detector)
+      //   28, // param2 (accumulator threshold)
+      //   15, // minRadius
+      //   40  // maxRadius
+      // );
+      // Filter circles based on radius size and y thresholds
+      //let filteredCircles = filterCircles(circlesMat, 640, 2400, 300, 2300);
+
+      // Add contours
+      // let allCircles = filteredCircles.concat(filteredContours);
+      // allCircles.sort((a, b) => a[1] - b[1]);
+
+
+      // Remove duplicate circle/contour by checking the centres of each circle
+      //let unique_circles = getUniqueCircles(allCircles);
+
+      // let dst = cv.Mat.zeros(blurredMat.rows, blurredMat.cols, cv.CV_8U);
+      // let color = new cv.Scalar(255, 0, 0);
+      // for (let i = 0; i < unique_circles.length; i++) {
+      //   const x = unique_circles[i][0];
+      //   const y = unique_circles[i][1];
+      //   const r = unique_circles[i][2];
+      //   let center = new cv.Point(x, y);
+      //   cv.circle(dst, center, r, color);
+      // }
+
+      // Group circles
+      /*
+      const student_number_circles = [];
+      const surname_circles = [];
+      const initials_circles = [];
+      for (const c of unique_circles) {
+        if (c[1] > 400) {
+          if (c[0] > 650 && c[0] < 1250 && c[1] < 1100) student_number_circles.push(c);
+          else if (c[0] > 1260 && c[0] < 2150 && c[1] < 2250) surname_circles.push(c);
+          else if (c[0] > 2150 && c[0] < 2400 && c[1] < 2200) initials_circles.push(c);
+        }
+      }
+      */
+      // const student_number_circles = get_circles_from_lattice(known_lattices[0]);
+      // const surname_circles = get_circles_from_lattice(known_lattices[1]);
+      // const initials_circles = get_circles_from_lattice(known_lattices[2]);
+
+      // let dst = mat.clone();
+      // let color = new cv.Scalar(0, 0, 0);
+      // for (let i = 0; i < initials.length; i++) {
+      //   const x = initials[i][0];
+      //   const y = initials[i][1];
+      //   const r = initials[i][2];
+      //   let center = new cv.Point(x, y);
+      //   cv.circle(dst, center, r, color);
+      // }
+      // setOutURIs([await matToBlobURL(dst)]);
+
+      // const student_number_groups = sort_by_columns(student_number_circles);
+      // const surname_groups = sort_by_columns(surname_circles);
+      // const initials_groups = sort_by_columns(initials_circles);
+
+      // const student_number_images = crop_info_regions(mat, student_number_groups);
+      // const surname_images = crop_info_regions(mat, surname_groups);
+      // const initials_images = crop_info_regions(mat, initials_groups);
+
+      // Promise.all(
+      //   initials_images.map(img => matToBlobURL(img))
+      // )
+      // .then(outs => setOutURIs(outs));
+      // const student_number = await predict_initials(student_number_images, new cv.Size(65, 630), "0123456789", `${currentPage}_num`);
+      // const surname = await predict_initials_cas(surname_images, "ABCDEFGHIJKLMNOPQRSTUVWXYZ-'", cascadeNonEmpty, cascadeCrossed);
+      // const initials = await predict_initials(initials_images, new cv.Size(65, 1625), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", `${currentPage}_ini`);
+
+      // Start scanning exam questions
+      // const vertical_threshold_min = 2300; // Y axis threshold with 10% margin
+      // const vertical_threshold_max = 3300;
+
+      // We already have the Hough circles, so reuse them
+      // filteredCircles = filterCircles(circlesMat, 0, 2479, vertical_threshold_min, vertical_threshold_max);
+
+      // Filter contours based on Y thresholds
+      // allCircles = filteredCircles.concat(filteredContours.filter(c => c[1] > vertical_threshold_min && c[1] < vertical_threshold_max));
+      // Sort by y
+      // allCircles.sort((a, b) => a[1] - b[1]);
+      // Get unique
+      // unique_circles = getUniqueCircles(allCircles);
+      // Organise the bubbles by rows
+
+      // const allCircles = [
+      //   ...get_circles_from_lattice(known_lattices[3]),
+      //   ...get_circles_from_lattice(known_lattices[4]),
+      //   ...get_circles_from_lattice(known_lattices[5]),
+      //   ...get_circles_from_lattice(known_lattices[6])
+      // ];
+      // allCircles.sort((a, b) => a[1] - b[1]);
+      // const final = group_by_rows(allCircles);
+
+      /*
+      // Filter rows by removing duplicates or bubbles that are too close too each other
+      const filtered_rows = [];
+      {
+        for (const row of rows) {
+          const current = row.slice();
+          if (row.length > 20) {
+            current.sort((a, b) => {a[0] - b[0]});
+            for (let i = 0; i < current.length - 1; i++) {
+              // Removes any duplciate or close bubbles that is less than 80 distance appart
+              if ((Math.abs(current[i][0] - current[i + 1][0]) < 80)) {
+                if (current[i][0] > 610 && current[i][0] < 740) {
+                  current.splice(i, 1);
+                } else if (current[i + 1][0] > 610 && current[i + 1][0] < 740) {
+                  current.splice(i + 1, 1);
+                } else if (current[i][0] > 1200 && current[i][0] < 1340) {
+                  current.splice(i, 1);
+                } else if (current[i + 1][0] > 1200 && current[i + 1][0] < 1340) {
+                  current.splice(i + 1, 1);
+                } else if (current[i][0] > 1800 && current[i][0] < 1900) {
+                  current.splice(i, 1);
+                } else if (current[i + 1][0] > 1800 && current[i + 1][0] < 1900) {
+                  current.splice(i + 1, 1);
+                }
+              }
+            }
+          }
+          filtered_rows.push(current);
+        }
+      }
+      // after doing this i gotta check if its detecting something on far left
+      const filtered_data = filter_detected_bubbles(filtered_rows);
+      const final = fill_missing_bubbles(filtered_data);
+      */
+      // final.sort((a, b) => a[0][1] - b[0][1])
+      // const valid_groups = filter_valid_groups(final);
+      // const bubble_grid = group_by_columns(valid_groups);
+      // const cropped_images = crop_question_regions(mat, bubble_grid)
+      // for debugging
+      // Promise.all(
+      //   cropped_images.map(img => matToBlobURL(img))
+      // )
+      // .then(outs => setOutURIs(outs));
+      //const answers = await predict_answers(cropped_images, new cv.Size(580, 84), "ABCDE", tesseract, `${currentPage}_q_`);
+
+    /*
+    // Write zip
+    // build zip
+    const content = await zip.generateAsync({ type: "blob" });
+
+    // trigger download
+    const url = URL.createObjectURL(content);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "exam-images.zip";
+    a.click();
+    URL.revokeObjectURL(url);
+    */
+    /*
+    console.log("Getting document");
+    const pdf = await getDocument("/CAB403-2024-11-14.pdf").promise;
+    console.log(pdf);
+    console.log("Getting page");
+    const page = await pdf.getPage(1);
+    console.log(page);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = new OffscreenCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    console.log(imageData);
+    const mat = cv.matFromImageData(imageData);
+    console.log(mat);
+    console.log(cv);
+    */
+
+    //blurredMat.delete();
+    //threshMat.delete();
+    //contours.delete();
+    //hierarchy.delete();
+    //circlesMat.delete();
+
+      // for (const img of student_number_images) img.delete();
+      // for (const img of surname_images) img.delete();
+      // for (const img of initials_images) img.delete();
+      //for (const img of cropped_images) img.delete();
+
+
+---
+
+  const predict_answer_cas = async (filled, txt_rois, tesseract = null, min_crossed_ocr = 1, abcdepredict = null) => {
+    let filled_count = 0, crossed_count = 0, empty_count = 0;
+    let ocrs = [];
+    for (let i = 0; i < txt_rois.length; i++) ocrs.push(null);
+    let raw = {
+      filled_weights: filled.map(f => f.filled_weight),
+      crossed_weights: filled.map(f => f.crossed_weight),
+      empty_weights: filled.map(f => f.empty_weight),
+      brightnesses: filled.map(f => f.brightness),
+      probas: filled.map(f => f.proba),
+      ocrs
+    };
+
+    for (let i = 0; i < filled.length; i++) {
+      if (filled[i].crossed) crossed_count++;
+      else if (filled[i].filled) filled_count++;
+      else if (filled[i].empty) empty_count++;
+    }
+    // Make a single non-empty filled
+    if (filled_count === 0 && empty_count === 1) {
+      for (let i = 0; i < filled.length; i++) {
+        if (!filled[i].empty && !filled[i].crossed) {
+          filled[i].filled = true;
+          filled_count++;
+        }
+      }
+    }
+
+    // If there's one answer, return it
+    if (filled_count === 1) {
+      for (let i = 0; i < filled.length; i++) {
+        if (filled[i].filled && !filled[i].crossed) return [filled[i].key, raw];
+      }
+      throw new Error("This shouldn't happen");
+    }
+
+    // If there's more than one answer, return the one with the highest weight
+    if (filled_count > 1) {
+      let best_key = null;
+      let best_weight = -Infinity;
+      for (let i = 0; i < filled.length; i++) {
+        if (!filled[i].crossed) {
+          if (filled[i].filled_weight > best_weight) {
+            best_key = filled[i].key;
+            best_weight = filled[i].filled_weight;
+          }
+        }
+      }
+      // Settle ties with proba
+      //best_key = filled.filter(f => !f.crossed && f.filled_weight === best_weight).sort((a, b) => b.proba.filled - a.proba.filled)[0].key;
+      best_key = filled.filter(f => !f.crossed && f.filled_weight === best_weight)[0].key;
+      return [best_key, raw];
+    }
+
+    // If there is nothing , OCR
+    if (filled_count === 0 && crossed_count >= min_crossed_ocr) {
+
+      for (let i = 0; i < txt_rois.length; i++) ocrs[i] = {};
+
+      let answer = null;
+      if (abcdepredict) {
+        const resultss = await abcdepredict(txt_rois);
+        for (let i = 0; i < txt_rois.length; i++) {
+          dbgOutputAppend(await matToBlobURL(txt_rois[i]));
+          const results = resultss[i];
+          const maxscore = Math.max(...results);
+          const answerkey = [null, "A", "B", "C", "D", "E"];
+          ocrs[i].p = results;
+          for (let j = 0; j < results.length; j++) {
+            
+            if (results[j] === maxscore) {
+              if (answer === null) answer = answerkey[j];
+              break;
+            }
+          }
+        }
+      }
+
+      if (tesseract) {
+        for (let i = 0; i < txt_rois.length; i++) {
+          const txt_roi = txt_rois[i];
+          //cv.GaussianBlur(txt_roi, blurred, new cv.Size(5, 5), 0);
+          //cv.threshold(blurred, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+          //cv.morphologyEx(thresh, clean, cv.MORPH_OPEN, kernel);
+
+          const blob = await matToBlobURL(txt_roi);
+          const result = await tesseract.recognize(blob);
+          //dbgOutputAppend(await matToBlobURL(txt_roi));
+          URL.revokeObjectURL(blob);
+          //console.log("Result", result);
+          ocrs[i].tt = result.data.text.trim();
+          ocrs[i].tc = result.data.confidence;
+          if (result.data.confidence >= 1) {
+            const text = result.data.text.trim();
+
+            if (text) {
+              //console.log(`Got ${text} from OCR!`);
+
+              answer = text[0];
+              break;
+            }
+          }
+        }
+      }
+
+      if (answer !== null) return [answer, raw];
+    }
+    // No answers at all? Return nothing
+    if (filled_count === 0 && crossed_count === 0) {
+      return [' ', raw];
+    }
+    // If there's only crossed and no OCR, pick the one with the highest filled_weight
+    {
+      let best_key = null;
+      let best_weight = -Infinity;
+      for (let i = 0; i < filled.length; i++) {
+        if (filled[i].crossed && filled[i].filled_weight > best_weight) {
+          best_key = filled[i].key;
+          best_weight = filled[i].filled_weight;
+        }
+      }
+      //best_key = filled.filter(f => f.crossed && f.filled_weight === best_weight).sort((a, b) => b.proba.filled - a.proba.filled)[0].key;
+      best_key = filled.filter(f => f.crossed && f.filled_weight === best_weight)[0].key;
+      if (best_key !== null) return [best_key, raw];
+    }
+    // Return nothing
+    return [' ', raw];
+  };
+
+
+----
+
+
+      <div>
+        <p>Provide zip of example 60x60 PNGs</p>
+        <input type="file" accept="application/zip" multiple onChange={async e => {
+
+          const cascades = {};
+          for (const cas of CASCADE_CLASSIFIERS) {
+            cascades[cas] = new cv.CascadeClassifier();
+            cascades[cas].load(`/cascade-${cas}.xml`);
+          }
+          const predict = await predictor("/bubble-detector.json", cv);
+
+          const rows = [];
+          for (let fi = 0; fi < e.target.files?.length; fi++) {
+            const file = e.target.files?.[fi];
+            if (!file) continue;
+            const zip = await JSZip.loadAsync(file);
+            const entries = Object.values(zip.files);
+            const mats = {};
+
+            for (const entry of entries) {
+              if (entry.dir) continue;
+              if (!/\.png$/i.test(entry.name)) continue;
+              const blob = await entry.async("blob");
+              // Draw to a canvas
+              const bmp = await createImageBitmap(blob);
+              const canvas = document.createElement("canvas");
+              canvas.width = bmp.width;
+              canvas.height = bmp.height;
+              const ctx = canvas.getContext("2d", { willReadFrequently: true });
+              ctx.drawImage(bmp, 0, 0);
+              bmp.close();
+
+              // Read into OpenCV Mat
+              const mat = cv.imread(canvas);
+              cv.cvtColor(mat, mat, cv.COLOR_BGR2GRAY);
+
+              mats[entry.name] = mat;
+            }
+            // Process
+            for (const name in mats) {
+              console.log(name);
+              const mat = mats[name];
+              const fill = detect_filled_cas(mat, cascades);
+              const predictions = await predict(mat);
+              console.log(predictions);
+              //console.log(fill);
+              rows.push([
+                name,
+                fill.filled_weight,
+                fill.crossed_weight,
+                fill.empty_weight,
+                fill.radius,
+                fill.brightness,
+                ...predictions
+              ]);
+              mat.delete();
+            }
+          }
+
+          const csv = rows.map(
+            row => row.map(val => val === -Infinity ? -999999 : val).join(",")
+          ).join('\n');
+
+          // trigger download
+          const blob = new Blob([csv], { type: 'text/csv' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "data.csv";
+          a.click();
+          URL.revokeObjectURL(url);
+
+          for (const cas in cascades) cascades[cas].delete();
+        }} />
+
+        <p>Provide zips of example 166x103 letter image PNGs</p>
+        <input type="file" accept="application/zip" multiple onChange={async e => {
+
+          const tesseract = await createWorker('eng');
+          await tesseract.setParameters({
+            "tessedit_char_whitelist": "abcdeABCDE",
+            "tessedit_pageseg_mode": "10",
+            "debug_file": "/dev/null"
+          });
+          const cascades = {};
+          for (const cas of CASCADE_CLASSIFIERS) {
+            cascades[cas] = new cv.CascadeClassifier();
+            cascades[cas].load(`/cascade-${cas}.xml`);
+          }
+          const predict = await predictor("/abcde-detector.json", cv);
+
+          const rows = [];
+          for (let fi = 0; fi < e.target.files?.length; fi++) {
+            const file = e.target.files?.[fi];
+            if (!file) continue;
+            const zip = await JSZip.loadAsync(file);
+            const entries = Object.values(zip.files);
+            const mats = [];
+
+            for (const entry of entries) {
+              if (entry.dir) continue;
+              if (!/\.png$/i.test(entry.name)) continue;
+              const blob = await entry.async("blob");
+              // Draw to a canvas
+              const bmp = await createImageBitmap(blob);
+              const canvas = document.createElement("canvas");
+              canvas.width = bmp.width;
+              canvas.height = bmp.height;
+              const ctx = canvas.getContext("2d", { willReadFrequently: true });
+              ctx.drawImage(bmp, 0, 0);
+              bmp.close();
+
+              // Read into OpenCV Mat
+              const mat = cv.imread(canvas);
+              cv.cvtColor(mat, mat, cv.COLOR_BGR2GRAY);
+
+              mats.push({ name: entry.name, mat: mat });
+            }
+            let objs = new cv.RectVector();
+            let rejectLevels = new cv.IntVector();
+            let levelWeights = new cv.DoubleVector();
+            let maxsize = new cv.Size(67, 63);
+            let minsize = new cv.Size(30, 28);
+
+            // Process 25 at a time
+            const BATCH_SIZE = 25;
+            for (let i = 0; i < Math.ceil(mats.length / BATCH_SIZE); i++) {
+              const matBatch = [];
+              for (let j = 0; j < BATCH_SIZE; j++) {
+                const idx = i * BATCH_SIZE + j;
+                if (idx >= mats.length) break;
+                matBatch.push(mats[idx].mat);
+              }
+              const predictionss = await predict(matBatch);
+              for (let j = 0; j < predictionss.length; j++) {
+                const idx = i * BATCH_SIZE + j;
+                const name = mats[idx].name;
+                const predictions = predictionss[j];
+                const cascpredictions = [];
+                for (const letter of ['a', 'b', 'c', 'd', 'e']) {
+                  cascades[letter].detectMultiScale3(mats[idx].mat, objs, rejectLevels, levelWeights, 1.1, 3, 0, minsize, maxsize, true);
+                  if (objs.size() > 0) {
+                    cascpredictions.push(levelWeights.get(0));
+                  } else {
+                    cascpredictions.push(0);
+                  }
+                }
+
+                const blob = await matToBlobURL(mats[idx].mat);
+                const result = await tesseract.recognize(blob);
+                URL.revokeObjectURL(blob);
+                const result_chr = result.data.text.trim();
+                const result_conf = result.data.confidence;
+                console.log(name);
+                console.log(predictions);
+                rows.push([
+                  name,
+                  ...predictions,
+                  ...cascpredictions,
+                  result_chr,
+                  result_conf
+                ]);
+                mats[idx].mat.delete();
+              }
+            }
+
+            objs.delete(); rejectLevels.delete(); levelWeights.delete();
+          }
+
+          const csv = rows.map(
+            row => row.map(val => val === -Infinity ? -999999 : val).join(",")
+          ).join('\n');
+
+          // trigger download
+          const blob = new Blob([csv], { type: 'text/csv' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "data.csv";
+          a.click();
+          URL.revokeObjectURL(url);
+
+          for (const cas in cascades) cascades[cas].delete();
+        }} />
+      </div>
+
+
+
+  const detect_filled_cas = (roi, cascades) => {
+    let objs = new cv.RectVector();
+    let rejectLevels = new cv.IntVector();
+    let levelWeights = new cv.DoubleVector();
+    let msize = new cv.Size(60, 60);
+    let fill = {
+      filled: false,
+      crossed: false,
+      empty: false,
+      filled_weight: -Infinity,
+      crossed_weight: -Infinity,
+      empty_weight: -Infinity,
+      radius: 0,
+      brightness: -1
+    };
+
+    // Hough circle
+    let circlesMat = new cv.Mat();
+    cv.HoughCircles(
+      roi,
+      circlesMat,
+      cv.HOUGH_GRADIENT,
+      1, // dp
+      15, // minDist
+      40, // param1 (higher threshold for Canny edge detector)
+      25, // param2 (accumulator threshold)
+      10, // minRadius
+      40  // maxRadius
+    );
+
+    // Filter circles based on radius size and y thresholds
+    let circles = convertCircles(circlesMat);
+    circlesMat.delete();
+    let circ_x = 29.5, circ_y = 29.5;
+    if (circles.length > 0) {
+      // Biggest circle
+      circles.sort((a, b) => b[2] - a[2]);
+      const circle = circles[0];
+      fill.radius = circle[2];
+      [circ_x, circ_y] = [circle[0], circle[1]];
+    }
+    // Get avg brightness
+    let mask = cv.Mat.zeros(roi.rows, roi.cols, cv.CV_8UC1);
+    const rad = 21.5;
+    cv.circle(mask, new cv.Point(circ_x, circ_y), rad - 4.0, new cv.Scalar(255), -1);
+
+    // Compute mean
+    let meanScalar = cv.mean(roi, mask);   // returns [mean, 0, 0, 0]
+    fill.brightness = meanScalar[0];
+    mask.delete();
+
+    // cascades["filled"].detectMultiScale3(roi, objs, rejectLevels, levelWeights, 1.01, 0, 0, msize, msize, true);
+    // if (objs.size() > 0) {
+    //   fill.filled_weight = levelWeights.get(0);
+    //   fill.filled = true;
+    // }
+    cascades["crossed"].detectMultiScale3(roi, objs, rejectLevels, levelWeights, 1.01, 0, 0, msize, msize, true);
+    if (objs.size() > 0) {
+      fill.crossed_weight = levelWeights.get(0);
+      fill.crossed = true;
+    }
+    // cascades["empty"].detectMultiScale3(roi, objs, rejectLevels, levelWeights, 1.01, 0, 0, msize, msize, true);
+    // if (objs.size() > 0) {
+    //   fill.empty_weight = levelWeights.get(0);
+    //   fill.empty = true;
+    // }
+
+    rejectLevels.delete();
+    levelWeights.delete();
+    objs.delete();
+    return fill;
+  };
+
+
+  const convertCircles = circles => {
+    const finalCircles = [];
+
+    for (let i = 0; i < circles.cols; i++) {
+      const x = Math.round(circles.data32F[i * 3]);
+      const y = Math.round(circles.data32F[i * 3 + 1]);
+      const r = Math.round(circles.data32F[i * 3 + 2]);
+
+      finalCircles.push([x, y, r]);
+    }
+
+    return finalCircles;
+  };
+
+  function predictClass(features) {
+    if (features['bright'] <= 220.804665) {
+      if (features['crossed'] <= -500000.454369) {
+        if (features['bright'] <= 201.552162) {
+          if (features['bright'] <= 194.393448) {
+            return { "crossed": 0.0015783824736410126, "empty": 0.0, "filled": 0.9984216175263589 };
+          } else {
+            return { "crossed": 0.0, "empty": 0.07692307692307693, "filled": 0.9230769230769231 };
+          }
+        } else {
+          if (features['bright'] <= 201.615982) {
+            return { "crossed": 0.0, "empty": 1.0, "filled": 0.0 };
+          } else {
+            return { "crossed": 0.0, "empty": 0.225, "filled": 0.775 };
+          }
+        }
+      } else {
+        if (features['crossed'] <= -1.512369) {
+          if (features['bright'] <= 80.716980) {
+            return { "crossed": 0.7450980392156863, "empty": 0.0, "filled": 0.2549019607843137 };
+          } else {
+            return { "crossed": 0.4117647058823529, "empty": 0.0, "filled": 0.5882352941176471 };
+          }
+        } else {
+          return { "crossed": 1.0, "empty": 0.0, "filled": 0.0 };
+        }
+      }
+    } else {
+      if (features['bright'] <= 224.190903) {
+        if (features['bright'] <= 224.179245) {
+          if (features['bright'] <= 223.347389) {
+            return { "crossed": 0.0, "empty": 0.875, "filled": 0.125 };
+          } else {
+            return { "crossed": 0.0, "empty": 1.0, "filled": 0.0 };
+          }
+        } else {
+          return { "crossed": 0.0, "empty": 0.0, "filled": 1.0 };
+        }
+      } else {
+        if (features['bright'] <= 237.256935) {
+          return { "crossed": 0.0, "empty": 1.0, "filled": 0.0 };
+        } else {
+          if (features['bright'] <= 237.258049) {
+            return { "crossed": 0.0, "empty": 0.9545454545454546, "filled": 0.045454545454545456 };
+          } else {
+            return { "crossed": 0.0, "empty": 0.9999921149327404, "filled": 7.885067259623725e-06 };
+          }
+        }
+      }
+    }
+  }
+
+  function predictProba(features) {
+    const coefs = [[9e-06, -0.064803], [5e-06, 0.129411], [-1.4e-05, -0.064612]];
+    const intercepts = [17.141577, -17.489292, 0.347714];
+    const featureNames = ["crossed", "bright"];
+    const classNames = ["crossed", "empty", "filled"];
+
+    const scores = [];
+
+    for (let k = 0; k < coefs.length; k++) {
+      let s = intercepts[k];
+      for (let j = 0; j < featureNames.length; j++) {
+        const name = featureNames[j];
+        const fv = features[name] === -Infinity ? -999999 : features[name];
+        const x = (fv !== undefined) ? fv : 0.0;
+        s += coefs[k][j] * x;
+      }
+      scores.push(s);
+    }
+
+    // Softmax for numerical stability
+    const maxScore = Math.max(...scores);
+    const expScores = scores.map(s => Math.exp(s - maxScore));
+    const sumExp = expScores.reduce((a, b) => a + b, 0.0);
+
+    const probs = {};
+    for (let k = 0; k < expScores.length; k++) {
+      probs[classNames[k]] = expScores[k] / sumExp;
+    }
+
+    return probs;
+  }
+
+
+---
+
+      // Write warped pages to zip
+      /*
+      {
+        const rect = new cv.Rect(0, 2295, 2479, 961);
+        const answer_section = mat.roi(rect);
+        const roicopy = answer_section.mat_clone();
+        const colour = [255, 255, 255, 255];
+        for (const lattice of known_lattices.slice(3)) {
+          for (let row = 0; row < lattice.rows; row++) {
+            for (let col = 0; col < lattice.cols; col++) {
+              const x = Math.floor(col * lattice.xstep + lattice.xstart - rect.x);
+              const y = Math.floor(row * lattice.ystep + lattice.ystart - rect.y);
+              cv.circle(roicopy, new cv.Point(x, y), 25, colour, -1);
+            }
+          }
+        }
+        await add_mat_to_zip(zip, `pg_${currentPage}.png`, roicopy);
+        answer_section.delete();
+        roicopy.delete();
+      }
+      */
+
+      // Draw mask and display
+      // {
+      //   const matCopy = mat.mat_clone();
+      //   num_mask_mat.copyTo(matCopy, num_mask_mat);
+      //   dbgOutputAppend(await matToBlobURL(matCopy));
+      //   matCopy.delete();
+      // }
+
+      // Draw mask and write letter gaps to zip
+      // {
+      //   const matCopy = mat.mat_clone();
+
+      //   num_mask_mat.copyTo(matCopy, num_mask_mat);
+      //   //dbgOutputAppend(await matToBlobURL(matCopy));
+
+      //   const xposes = [86, 594, 677, 1186, 1269, 1776, 1859, 2367];
+      //   for (let x = 0; x < 8; x++) {
+      //     for (let y = 0; y < 10; y++) {
+      //       let xpos = xposes[x];
+      //       let ypos = Math.floor(known_lattices[3].ystep * y + known_lattices[3].ystart - 39);
+      //       let w = 83;
+      //       let h = 81;
+      //       if (y === 0) {
+      //         // First row, add 22 pixels to the top (158x103)
+      //         ypos -= 22;
+      //         h += 22;
+      //       }
+      //       if (x === 0) {
+      //         // First column, add 83 pixels to the left (166x81)
+      //         xpos -= 83;
+      //         w += 83;
+      //       }
+      //       if (x === 7) {
+      //         // Last column, add 29 pixels to the right (112x81)
+      //         w += 29;
+      //       }
+      //       const roi = matCopy.roi(new cv.Rect(xpos, ypos, w, h));
+      //       const workingMat = new cv.Mat(103, 166, cv.CV_8UC1, new cv.Scalar(255));
+      //       const workingMatRoi = workingMat.roi(new cv.Rect(Math.floor((166 - w) / 2),Math.floor((103 - h) / 2), w, h));
+
+      //       roi.copyTo(workingMatRoi);
+
+      //       let meanScalar = cv.mean(workingMat);
+      //       let brightness = meanScalar[0];
+      //       if (brightness < 254.5) {
+      //         await add_mat_to_zip(zip, `${brightness.toFixed(2)}_${currentPage}_${x}_${y}.png`, workingMat);
+      //       }
+      //       roi.delete();
+      //       workingMatRoi.delete();
+      //       workingMat.delete();
+      //     }
+      //   }
+
+      //   // Student details
+      //   for (let li = 0; li < 3; li++) {
+      //     const lattice = known_lattices[li];
+      //     for (let x = 0; x < lattice.cols; x++) {
+      //       let xpos = Math.floor(lattice.xstep * x + lattice.xstart) - 27 + 4;
+      //       let ypos = lattice.ystart - 146 + 4;
+      //       let w = 50;
+      //       let h = 96;
+
+      //       const roi = matCopy.roi(new cv.Rect(xpos, ypos, w, h));
+      //       const workingMat = new cv.Mat(103, 166, cv.CV_8UC1, new cv.Scalar(255));
+      //       const workingMatRoi = workingMat.roi(new cv.Rect(Math.floor((166 - w) / 2),Math.floor((103 - h) / 2), w, h));
+
+      //       roi.copyTo(workingMatRoi);
+
+      //       let meanScalar = cv.mean(workingMat);
+      //       let brightness = meanScalar[0];
+      //       if (brightness < 254) {
+      //         await add_mat_to_zip(zip, `${brightness.toFixed(2)}_${currentPage}_s_${li}_${x}.png`, workingMat);
+      //       }
+      //       roi.delete();
+      //       workingMatRoi.delete();
+      //       workingMat.delete();
+      //     }
+      //   }
+      //   matCopy.delete();
+      // }
+
+      // Early exit
+      // {
+      //   if (currentPage >= endAt) break;
+      //   currentPage++;
+      //   setProgress([Math.ceil((currentPage - startAt) / pagesPerExam), totalExams]);
+      //   continue;
+      // }
+
+      // Detect letters with cascade
+      /*
+      {
+        const rect = new cv.Rect(0, 2295, 2479, 961);
+        const roi = mat.roi(rect);
+        const roicopy = roi.mat_clone();
+        const colour = [255, 255, 255, 255];
+        for (const lattice of known_lattices.slice(3)) {
+          for (let row = 0; row < lattice.rows; row++) {
+            for (let col = 0; col < lattice.cols; col++) {
+              const x = Math.floor(col * lattice.xstep + lattice.xstart - rect.x);
+              const y = Math.floor(row * lattice.ystep + lattice.ystart - rect.y);
+              cv.circle(roicopy, new cv.Point(x, y), 25, colour, -1);
+            }
+          }
+        }
+        cv.resize(roicopy, roicopy, new cv.Size(310, 439)) // 2479 x 3508
+
+        let objs = new cv.RectVector();
+        let rejectLevels = new cv.IntVector();
+        let levelWeights = new cv.DoubleVector();
+        let minsize = new cv.Size(0, 0);
+        let maxsize = new cv.Size(0, 0);
+        let msize = new cv.Size(0, 0);
+        let any_found = false;
+        
+        for (const letter of ['a', 'b', 'c', 'd', 'e']) {
+          console.log("START DETECTING");
+          //cascades[letter].detectMultiScale3(roicopy, objs, rejectLevels, levelWeights, 1.1, 3, 0, minsize, maxsize, false);
+          cascades[letter].detectMultiScale(roicopy, objs, 1.1, 3, 0, msize, msize);
+          console.log("DONE DETECTING");
+          if (objs.size() > 0) {
+            console.log(`CASCADE FOUND ${letter}:`);
+            for (let i = 0; i < objs.size(); i++) {
+              console.log(`@ ${objs.get(i).x},${objs.get(i).y} ${objs.get(i).width}x${objs.get(i).height} : ${levelWeights.get(i)}`);
+
+            let point1 = new cv.Point(objs.get(i).x, objs.get(i).y);
+            let point2 = new cv.Point(objs.get(i).x + objs.get(i).width,
+                                      objs.get(i).y + objs.get(i).height);
+            cv.rectangle(roicopy, point1, point2, [0, 0, 0, 0]);
+            }
+            any_found = true;
+          }
+          console.log("FINISH DETECTING");
+        }
+
+        if (any_found) {
+          dbgOutputAppend(await matToBlobURL(roicopy));
+        }
+        objs.delete();
+        rejectLevels.delete();
+        levelWeights.delete();
+        roi.delete();
+        roicopy.delete();
+      }
+      */
+
+
+      //dbgOutput([await matToBlobURL(mat)]);
+
+
+---
+
+
+const setResultFields = (setExamResults, i, fields, diffAction = null) => {
+  if (typeof fields === 'function') {
+    setExamResults(prev => [
+      ...prev.slice(0, i),
+      {
+        ...prev[i], ...(fields(prev[i])), ...(diffAction === null ? false : {
+          diffs: [
+            ...prev[i].diffs.slice(0, diffAction),
+            { ...prev[i].diffs[diffAction], actioned: true },
+            ...prev[i].diffs.slice(diffAction + 1)
+          ]
+        })
+      },
+      ...prev.slice(i + 1)
+    ]);
+  } else {
+    setExamResults(prev => [
+      ...prev.slice(0, i),
+      {
+        ...prev[i], ...fields, ...(diffAction === null ? false : {
+          diffs: [
+            ...prev[i].diffs.slice(0, diffAction),
+            { ...prev[i].diffs[diffAction], actioned: true },
+            ...prev[i].diffs.slice(diffAction + 1)
+          ]
+        })
+      },
+      ...prev.slice(i + 1)
+    ]);
+  }
+};
+
+
+---
+
+          <table>
+            <thead>
+              <tr>
+                <th colspan="2">Page</th>
+                <th>Student #</th>
+                <th>Surname</th>
+                <th>Initial</th>
+                <th>Score</th>
+                {range(cfg.twoSided ? 160 : 40).map(
+                  n => <th>Q{n + 1}</th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {
+                examResults.map(examResultsRow(cfg, setExamResults, pdf))
+              }
+            </tbody>
+          </table>
+
+
+
+----
+
+        <div style={{
+          height: "300px",
+          overflowY: "auto",
+          border: "1px solid #ccc",
+          padding: "8px"
+        }}>
+
+----
+
+  function matToBlob(mat) {
+    const rgba = new cv.Mat();
+    if (mat.type() === cv.CV_8UC1)
+      cv.cvtColor(mat, rgba, cv.COLOR_GRAY2RGBA);
+    else if (mat.type() === cv.CV_8UC3)
+      cv.cvtColor(mat, rgba, cv.COLOR_RGB2RGBA);
+    else
+      mat.copyTo(rgba);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = rgba.cols;
+    canvas.height = rgba.rows;
+    cv.imshow(canvas, rgba);
+    rgba.delete();
+
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(
+        blob => blob ? resolve(blob) : reject(new Error('toBlob failed')),
+        'image/png'
+      );
+    });
+  }
+  async function matToBlobURL(mat) {
+    return URL.createObjectURL(await matToBlob(mat));
+  }
+  const add_mat_to_zip = async (zip, filename, mat) => {
+    await add_blob_to_zip(zip, filename, await matToBlob(mat));
+  };

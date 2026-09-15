@@ -1,0 +1,30 @@
+.exam-row {
+  display: grid;
+  grid-template-columns:
+    1rem
+    /* icon */
+    3rem
+    /* page */
+    6rem
+    /* student number */
+    12rem
+    /* surname */
+    4rem
+    /* initials */
+    4rem
+    /* score */
+    repeat(var(--qcount), 3rem);
+  /* each question column */
+  align-items: center;
+  min-height: 2rem;
+}
+
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.pagination-row span {
+  display: inline-block;
+  min-width: 2.5rem;
+  text-align: center;
+}
