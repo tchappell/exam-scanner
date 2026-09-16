@@ -34,7 +34,7 @@ function IdentityDifference({ diff, examResults, setExamResults, field, showActi
 
   return (
     <article class={`review-item ${actioned ? 'is-actioned' : ''}`}>
-      <button type="button" class="review-item__image review-item__image--identity"
+      <button type="button" class={`review-item__image review-item__image--identity${field === 'student_number' ? ' review-item__image--student-number' : ''}`}
         onClick={() => onViewImage?.(diff.img, `Scanned ${field} — PDF page ${result.page}`)}>
         <img src={diff.img} alt="Scanned field requiring comparison" />
         <span>Enlarge crop</span>

@@ -85,6 +85,30 @@ test('keeps Multi inside its control when individual marks are visible', async (
   expect(geometry.textRight).toBeLessThanOrEqual(geometry.labelRight);
 });
 
+test('fits a wide student number crop inside its review container', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const container = document.createElement('button');
+    container.type = 'button';
+    container.className = 'review-item__image review-item__image--identity review-item__image--student-number';
+    container.style.width = '320px';
+    const image = document.createElement('img');
+    image.alt = 'Test student number crop';
+    image.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="900" height="180"%3E%3Crect width="900" height="180" fill="white"/%3E%3C/svg%3E';
+    container.append(image);
+    document.body.append(container);
+    await image.decode();
+  });
+
+  const geometry = await page.getByRole('button', { name: 'Test student number crop' }).evaluate(container => ({
+    containerWidth: container.clientWidth,
+    imageWidth: container.querySelector('img').getBoundingClientRect().width,
+    scrollWidth: container.scrollWidth
+  }));
+  expect(geometry.imageWidth).toBeLessThanOrEqual(geometry.containerWidth);
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.containerWidth);
+});
+
 test('configures mark ranges and individual zero-mark overrides', async ({ page }) => {
   await page.goto('/');
   await page.locator('label[for="ak_1_A"]').click();

@@ -1794,6 +1794,19 @@ button.review-item__image {
   max-height: none;
 }
 
+.review-item__image--identity.review-item__image--student-number {
+  overflow-x: hidden;
+}
+
+.review-item__image--identity.review-item__image--student-number img {
+  display: block;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
 button.review-item__image { cursor: zoom-in; }
 
 .review-item__image span {
