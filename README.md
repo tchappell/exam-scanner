@@ -29,6 +29,19 @@ npm run test:e2e
 installed Microsoft Edge browser to run the recognition fixtures; it takes a
 few minutes on the current development machine.
 
+## GitHub Pages
+
+The web build is deployable as a static GitHub Pages site. The workflow in
+`.github/workflows/deploy-pages.yml` installs the locked dependencies, runs the
+unit tests, builds `dist`, and deploys it whenever `main` is pushed. It can also
+be run manually from the repository's **Actions** tab.
+
+After pushing the repository to GitHub, enable the workflow once under
+**Settings → Pages → Build and deployment** by choosing **GitHub Actions** as
+the source. Vite uses relative asset paths, so the application works both at a
+repository URL such as `https://USERNAME.github.io/exam-scanner/` and at a
+root/custom-domain URL without a repository-name setting in the source code.
+
 ## Characterization fixture
 
 `tests/fixtures/scan_chappeta.pdf` is a synthetic, non-student, ten-page scan used
@@ -66,7 +79,7 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
 
 ## Current architecture
 
-- `src/app.jsx` coordinates scanner state and the four-step workflow without
+- `src/app.jsx` coordinates scanner state and the three-step workflow without
   owning the presentation details of results, review, analysis, or exports.
 - `src/components/WorkspaceSection.jsx` provides the application shell, workflow
   navigation, numbered sections, and empty states.
@@ -105,8 +118,8 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
 The large UI and worker files are intentionally being split gradually. Recognition
 logic should not be reorganized until its fixture can be exercised automatically.
 
-The interface is arranged as a four-step workspace: set up the document,
-configure the key, review scans, then export or transfer results. Keep new UI
+The interface is arranged as a three-step workspace: set up the document and
+key, review scans, then export or transfer results. Keep new UI
 features within the component that owns their workflow step rather than adding
 more presentation logic directly to `App`.
 

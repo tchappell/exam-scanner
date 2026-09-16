@@ -51,7 +51,7 @@ select {
 }
 
 .app-container {
-  width: min(1560px, 100%);
+  width: min(1760px, 100%);
   margin: 0 auto;
 }
 
@@ -547,7 +547,7 @@ select {
 
 .answer-key-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(275px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(255px, 1fr));
   gap: 15px;
   max-height: 600px;
   padding: 2px 4px 4px 2px;

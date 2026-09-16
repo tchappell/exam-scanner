@@ -53,6 +53,17 @@ test('lays out setup columns side by side when the viewport has room', async ({ 
   expect(Math.max(...topPositions) - Math.min(...topPositions)).toBeLessThan(12);
 });
 
+test('fits all four one-sided answer blocks on one row on a wide display', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto('/');
+
+  const blockTops = await page.locator('.answer-key-block').evaluateAll(blocks =>
+    blocks.map(block => block.getBoundingClientRect().top)
+  );
+  expect(blockTops).toHaveLength(4);
+  expect(Math.max(...blockTops) - Math.min(...blockTops)).toBeLessThan(12);
+});
+
 test('keeps Multi inside its control when individual marks are visible', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Contains multi-answer questions?').check();
