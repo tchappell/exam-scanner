@@ -29,6 +29,41 @@ npm run test:e2e
 installed Microsoft Edge browser to run the recognition fixtures; it takes a
 few minutes on the current development machine.
 
+## Desktop app
+
+The Tauri desktop app is a thin Windows shell around the same Vite build. It
+does not duplicate the interface or scanner implementation, so browser and
+desktop behaviour stay aligned. The web app remains the primary version.
+
+Desktop development additionally requires the current stable Rust toolchain,
+the Microsoft C++ Build Tools, and the WebView2 runtime. On a Windows 10 or 11
+development machine, run:
+
+```text
+npm ci
+npm run desktop:dev
+```
+
+Create the optimized application and NSIS installer with:
+
+```text
+npm run desktop:build
+```
+
+The unpackaged executable is written to
+`src-tauri/target/release/exam-scanner.exe`; the installer is written under
+`src-tauri/target/release/bundle/nsis/`. These generated files are ignored by
+Git. The Tauri source and configuration live in `src-tauri/`.
+
+`.github/workflows/release-desktop.yml` performs the same build on GitHub's
+Windows runner and creates a draft GitHub Release containing the installer. It
+runs for a `v*` tag or can be started manually from **Actions**. The application
+version is kept in `package.json`, `src-tauri/Cargo.toml`, and
+`src-tauri/tauri.conf.json`.
+
+The installer is currently unsigned. Windows may therefore show a SmartScreen
+warning until a suitable code-signing certificate and CI secret are configured.
+
 ## GitHub Pages
 
 The web build is deployable as a static GitHub Pages site. The workflow in
