@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { matchExamResultsToCanvas } from '../src/services/canvasMatching.mjs';
+import { applyManualCanvasMatches, matchExamResultsToCanvas } from '../src/services/canvasMatching.mjs';
 
 const headings = [
   ['Student', 'ID', 'SIS User ID', 'SIS Login ID', 'Integration ID', 'Section'],
@@ -42,4 +42,20 @@ test('Canvas matching leaves duplicate scan IDs for manual resolution', () => {
   assert.equal(result.examResultMatches.size, 0);
   assert.deepEqual(result.unmatchedExamResults, [0, 1]);
   assert.deepEqual(result.unmatchedStudents, [3]);
+});
+
+test('manual Canvas matches pair an unmatched exam without changing its student number', () => {
+  const canvasCsv = [
+    ...headings,
+    ['Smith, Ada', '42', '', '', '', '']
+  ];
+  const examResults = [{ student_number: '123456', surname: 'SMITH' }];
+  const automatic = matchExamResultsToCanvas(examResults, canvasCsv);
+
+  const result = applyManualCanvasMatches(automatic, new Map([[0, 3]]));
+
+  assert.deepEqual([...result.examResultMatches], [[0, 3]]);
+  assert.deepEqual(result.unmatchedExamResults, []);
+  assert.deepEqual(result.unmatchedStudents, []);
+  assert.equal(examResults[0].student_number, '123456');
 });

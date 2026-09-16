@@ -125,3 +125,24 @@ test('configures mark ranges and individual zero-mark overrides', async ({ page 
   await page.getByLabel('Marks for question 1', { exact: true }).fill('0');
   await expect(page.getByText('2.5 marks available')).toBeVisible();
 });
+
+test('desktop runtime exposes direct Canvas without removing the CSV workflow', async ({ page }) => {
+  await page.addInitScript(() => {
+    globalThis.isTauri = true;
+    window.__TAURI_INTERNALS__ = {
+      invoke: async command => {
+        if (command === 'canvas_has_saved_token') return false;
+        throw new Error(`Unexpected mocked Tauri command: ${command}`);
+      }
+    };
+  });
+  await page.goto('/');
+
+  await expect(page.getByRole('tab', { name: 'Direct Canvas' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('Canvas address')).toHaveValue('https://canvas.qut.edu.au');
+  await expect(page.getByLabel('Access token')).toBeVisible();
+  await expect(page.getByText('operating system credential store')).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Gradebook CSV and upload ZIP' }).click();
+  await expect(page.getByLabel('Submit Canvas Gradebook CSV')).toBeVisible();
+});

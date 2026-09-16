@@ -14,4 +14,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
+keyring = "3.6.3"
+regex = "1.11.2"
+reqwest = { version = "0.12.23", default-features = false, features = ["json", "multipart", "rustls-tls-native-roots"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.143"
 tauri = { version = "2.11.5", features = [] }
+url = "2.5.7"

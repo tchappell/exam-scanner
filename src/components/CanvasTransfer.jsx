@@ -1,10 +1,12 @@
 import { useState } from 'preact/hooks';
-import { calculateMaximumScore, calculateScore, normaliseStudentNum } from '../examDomain.mjs';
+import { calculateMaximumScore, calculateScore } from '../examDomain.mjs';
+import { isDesktopApp } from '../services/canvasDesktop.mjs';
 import { matchExamResultsToCanvas } from '../services/canvasMatching.mjs';
 import { examResultFilename, hashBlob } from '../services/examArtifacts.mjs';
-import { updateExamResult } from '../services/resultState.mjs';
 import { createCSV, loadCSV } from '../util/csv.mjs';
 import { addBlobToZip, createZip, downloadFile, downloadZip } from '../util/downloads.mjs';
+import { CanvasRosterMatch } from './CanvasRosterMatch.jsx';
+import { DirectCanvasTransfer } from './DirectCanvasTransfer.jsx';
 import uploadMarks from '../uploadMarks.txt?raw';
 
 const multiAnswerQuestionsFor = cfg => cfg.hasMultiAnswer ? (cfg.multiAnswerQuestions ?? {}) : {};
@@ -27,14 +29,6 @@ function findAssignments(csv) {
 function isCanvasGradebook(csv) {
   return ['Student', 'ID', 'SIS User ID', 'SIS Login ID', 'Integration ID', 'Section']
     .every((heading, index) => csv[0]?.[index] === heading);
-}
-
-function MatchCard({ children, selected, onSelect, side }) {
-  return (
-    <button type="button" class={`canvas-match-card ${selected ? 'is-selected' : ''}`} onClick={onSelect}>
-      <span class="canvas-match-card__side">{side}</span>{children}
-    </button>
-  );
 }
 
 const DEFAULT_COMMENT = 'Your marked test answer sheet is attached. Please contact the teaching team if you believe any response has been recorded incorrectly.';
@@ -120,11 +114,13 @@ function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, mat
 }
 
 export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAnnotatedPdf }) {
+  const desktopApp = isDesktopApp();
+  const [mode, setMode] = useState(desktopApp ? 'direct' : 'csv');
   const [canvasCSV, setCanvasCSV] = useState(null);
   const [assignments, setAssignments] = useState([]);
   const [assignmentIndex, setAssignmentIndex] = useState('-1');
-  const [matchSelection, setMatchSelection] = useState(null);
-  const { examResultMatches, unmatchedExamResults, unmatchedStudents } = matchExamResultsToCanvas(examResults, canvasCSV);
+  const matchResult = matchExamResultsToCanvas(examResults, canvasCSV);
+  const { examResultMatches } = matchResult;
 
   const loadGradebook = async event => {
     const file = event.target.files?.[0];
@@ -137,32 +133,12 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
     setCanvasCSV(csv);
     setAssignments(findAssignments(csv));
     setAssignmentIndex('-1');
-    setMatchSelection(null);
   };
 
   const clearGradebook = () => {
     setCanvasCSV(null);
     setAssignments([]);
     setAssignmentIndex('-1');
-    setMatchSelection(null);
-  };
-
-  const match = (examIndex, studentIndex) => {
-    updateExamResult(setExamResults, unmatchedExamResults[examIndex], {
-      student_number: `${normaliseStudentNum(canvasCSV[unmatchedStudents[studentIndex]][4])}`
-    });
-  };
-
-  const chooseMatch = (side, index) => {
-    setMatchSelection(previous => {
-      if (previous === null) return [side, index];
-      if (previous[0] !== side) {
-        const examIndex = side === 'exam' ? index : previous[1];
-        const studentIndex = side === 'student' ? index : previous[1];
-        match(examIndex, studentIndex);
-      }
-      return null;
-    });
   };
 
   const selectedAssignment = assignmentIndex === '-1' ? null : assignments[Number(assignmentIndex)];
@@ -183,8 +159,17 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
     <section class="canvas-transfer" aria-labelledby="canvas-transfer-title">
       <div class="subsection-header">
         <div><p class="subsection-header__eyebrow">Integration</p><h3 id="canvas-transfer-title">Canvas transfer</h3></div>
-        {canvasCSV ? <button type="button" class="btn btn-sm btn-outline-secondary" onClick={clearGradebook}>Remove gradebook</button> : null}
+        {mode === 'csv' && canvasCSV ? <button type="button" class="btn btn-sm btn-outline-secondary" onClick={clearGradebook}>Remove gradebook</button> : null}
       </div>
+      {desktopApp ? <div class="canvas-transfer-tabs" role="tablist" aria-label="Canvas transfer method">
+        <button type="button" role="tab" aria-selected={mode === 'direct'} class={mode === 'direct' ? 'is-active' : ''}
+          onClick={() => setMode('direct')}>Direct Canvas</button>
+        <button type="button" role="tab" aria-selected={mode === 'csv'} class={mode === 'csv' ? 'is-active' : ''}
+          onClick={() => setMode('csv')}>Gradebook CSV and upload ZIP</button>
+      </div> : null}
+
+      {mode === 'direct' ? <DirectCanvasTransfer examResults={examResults} setExamResults={setExamResults}
+        cfg={cfg} pdf={pdf} createAnnotatedPdf={createAnnotatedPdf} /> : <>
       {!canvasCSV ? (
         <div class="canvas-upload">
           <div><strong>Load a Canvas Gradebook CSV</strong><p>Match scanned student numbers and select the assignment to update.</p></div>
@@ -192,35 +177,7 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
             aria-label="Submit Canvas Gradebook CSV" />
         </div>
       ) : <>
-        <div class="canvas-summary">
-          <div><strong>{examResults.length - unmatchedExamResults.length}</strong><span>matched exams</span></div>
-          <div><strong>{unmatchedExamResults.length}</strong><span>unmatched exams</span></div>
-          <div><strong>{canvasCSV.length - 3 - (examResults.length - unmatchedExamResults.length)}</strong><span>students without scans</span></div>
-        </div>
-        {(unmatchedExamResults.length > 0 || unmatchedStudents.length > 0) ? (
-          <div class="canvas-matches">
-            <p>Select one exam and one Canvas student to match them.</p>
-            <div class="canvas-matches__columns">
-              <div>
-                <h4>Unmatched exams</h4>
-                {unmatchedExamResults.map((resultIndex, index) => <MatchCard key={resultIndex} side="Exam"
-                  selected={matchSelection?.[0] === 'exam' && matchSelection[1] === index}
-                  onSelect={() => chooseMatch('exam', index)}>
-                  Page {examResults[resultIndex].page}: {examResults[resultIndex].surname}, {examResults[resultIndex].initials}
-                  <small>{examResults[resultIndex].student_number}</small>
-                </MatchCard>)}
-              </div>
-              <div>
-                <h4>Canvas students</h4>
-                {unmatchedStudents.map((studentIndex, index) => <MatchCard key={studentIndex} side="Student"
-                  selected={matchSelection?.[0] === 'student' && matchSelection[1] === index}
-                  onSelect={() => chooseMatch('student', index)}>
-                  {canvasCSV[studentIndex][0]}<small>{canvasCSV[studentIndex][4]}</small>
-                </MatchCard>)}
-              </div>
-            </div>
-          </div>
-        ) : null}
+        <CanvasRosterMatch examResults={examResults} setExamResults={setExamResults} canvasCSV={canvasCSV} matchResult={matchResult} />
       </>}
 
       <div class="canvas-assignment">
@@ -246,6 +203,7 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
         <PerStudentPdfExport examResults={examResults} cfg={cfg} pdf={pdf} assignment={selectedAssignment}
           canvasCSV={canvasCSV} matches={examResultMatches} createAnnotatedPdf={createAnnotatedPdf} />
       ) : null}
+      </>}
     </section>
   );
 }

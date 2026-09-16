@@ -64,6 +64,35 @@ version is kept in `package.json`, `src-tauri/Cargo.toml`, and
 The installer is currently unsigned. Windows may therefore show a SmartScreen
 warning until a suitable code-signing certificate and CI secret are configured.
 
+### Direct Canvas transfer
+
+The desktop app adds a **Direct Canvas** tab to the existing Canvas transfer
+section. The browser version retains the gradebook CSV and upload-ZIP workflows,
+and those workflows also remain available in the desktop app.
+
+The direct workflow connects to `https://canvas.qut.edu.au` by default, then:
+
+1. loads the signed-in user's active courses;
+2. loads the selected course's assignments and active student roster;
+3. matches roster integration IDs to scanned student numbers, with manual
+   name-based pairing for exceptions; and
+4. uploads grades, with optional annotated answer-sheet PDFs and a configurable
+   student comment.
+
+The token is held by the native Rust process rather than browser storage. If
+**Remember token** is selected, it is saved in the operating system credential
+store; otherwise it is retained only for the current app session. The app asks
+for confirmation before an upload and reports failures per student so a partial
+upload can be safely retried. PDFs created by this app use the `exam_scan_`
+filename prefix; a retry reuses an identical managed attachment or replaces the
+app's earlier managed attachment and comment. It does not alter unrelated Canvas
+attachments or comments.
+
+Canvas API access depends on the token holder having permission to view the
+course roster and manage grades. Because automated tests do not have access to
+a QUT Canvas account, the native request/parsing code is tested locally but the
+first end-to-end API check must be performed with a suitable test assignment.
+
 ## GitHub Pages
 
 The web build is deployable as a static GitHub Pages site. The workflow in
@@ -128,8 +157,9 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
 - `src/components/ExamResultsTable.jsx` owns result searching, paging, editing,
   and annotated-PDF actions; `ReviewPanels.jsx` owns comparison and uncertain-mark
   review queues.
-- `src/components/ResultsFileExchange.jsx` owns CSV/JSON import and export,
-  `CanvasTransfer.jsx` owns Canvas matching and transfer preparation, and
+- `src/components/ResultsFileExchange.jsx` owns CSV/JSON import and export;
+  `CanvasTransfer.jsx`, `DirectCanvasTransfer.jsx`, and `CanvasRosterMatch.jsx`
+  own the two Canvas workflows and their shared roster matching; and
   `ExamAnalysis.jsx` owns item statistics.
 - `src/scannerWorker.js` contains the OpenCV/TensorFlow recognition pipeline.
 - `src/scannerClient.mjs` owns the request/response boundary to that worker.
@@ -145,6 +175,10 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
   formatting, comparison imports, Canvas student matching, and PDF artifact
   generation. `pdfArtifacts.mjs` is the single boundary for request/marker PDFs
   and annotated student exams.
+- `src-tauri/src/canvas.rs` is the privileged native Canvas boundary. It owns
+  authenticated HTTPS requests, pagination, credential storage, comment-file
+  uploads, and idempotent grade updates; the web interface cannot invoke an
+  arbitrary authenticated URL.
 - `src/util/csv.mjs` owns standards-compliant CSV parsing and generation;
   `src/util/downloads.mjs` centralizes browser file and ZIP downloads.
 - `tools/trainer-legacy/` preserves classifier-training experiments that are not

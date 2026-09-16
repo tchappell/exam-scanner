@@ -112,3 +112,22 @@ export function matchExamResultsToCanvas(examResults, canvasCsv) {
 
   return { examResultMatches, unmatchedExamResults, unmatchedStudents };
 }
+
+export function applyManualCanvasMatches(matchResult, manualMatches) {
+  const examResultMatches = new Map(matchResult.examResultMatches);
+  const unmatchedExamResults = new Set(matchResult.unmatchedExamResults);
+  const unmatchedStudents = new Set(matchResult.unmatchedStudents);
+
+  for (const [examIndex, studentRow] of manualMatches) {
+    if (!unmatchedExamResults.has(examIndex) || !unmatchedStudents.has(studentRow)) continue;
+    examResultMatches.set(examIndex, studentRow);
+    unmatchedExamResults.delete(examIndex);
+    unmatchedStudents.delete(studentRow);
+  }
+
+  return {
+    examResultMatches,
+    unmatchedExamResults: matchResult.unmatchedExamResults.filter(index => unmatchedExamResults.has(index)),
+    unmatchedStudents: matchResult.unmatchedStudents.filter(row => unmatchedStudents.has(row))
+  };
+}
