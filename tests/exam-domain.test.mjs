@@ -3,11 +3,13 @@ import test from 'node:test';
 
 import {
   answerIncludes,
+  calculateMaximumScore,
   calculateScore,
   createAnswerKey,
   fixAnswers,
   isAnswerCorrect,
   normaliseAnswer,
+  marksForQuestion,
   normaliseStudentNum,
   updateAnswer
 } from '../src/examDomain.mjs';
@@ -34,6 +36,22 @@ test('multi-answer questions require the exact keyed set', () => {
   assert.equal(isAnswerCorrect('BD', answerKey[0], true), true);
   assert.equal(isAnswerCorrect('B', answerKey[0], true), false);
   assert.equal(isAnswerCorrect('BDE', answerKey[0], true), false);
+});
+
+test('mark ranges and individual overrides have predictable precedence', () => {
+  const marking = {
+    defaultMarks: 1,
+    ranges: [{ from: 2, to: 4, marks: 1.5 }],
+    overrides: { 3: 0, 5: 2 }
+  };
+  const answerKey = Object.fromEntries(Array.from({ length: 6 }, (_, question) => [question, { A: true }]));
+
+  assert.equal(marksForQuestion(0, marking), 1);
+  assert.equal(marksForQuestion(2, marking), 1.5);
+  assert.equal(marksForQuestion(3, marking), 0);
+  assert.equal(marksForQuestion(5, marking), 2);
+  assert.equal(calculateMaximumScore(answerKey, marking), 7);
+  assert.equal(calculateScore(['A', 'A', 'A', 'A', 'B', 'A'], answerKey, {}, marking), 5.5);
 });
 
 test('answers are stored in a canonical, CSV-friendly form', () => {

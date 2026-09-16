@@ -1,8 +1,9 @@
 import { Fragment } from 'preact';
+import { marksForQuestion } from '../examDomain.mjs';
 
 const OPTIONS = ['A', 'B', 'C', 'D', 'E'];
 
-export function AnswerKeyGrid({ cfg, setCfg, currentlyScanning }) {
+export function AnswerKeyGrid({ cfg, setCfg, currentlyScanning, manualMarks = false }) {
   const questionCount = cfg.twoSided ? 160 : 40;
   const blocks = Array.from({ length: questionCount / 10 }, (_, block) =>
     Array.from({ length: 10 }, (_, row) => block * 10 + row)
@@ -30,6 +31,16 @@ export function AnswerKeyGrid({ cfg, setCfg, currentlyScanning }) {
     });
   };
 
+  const setQuestionMarks = (question, value) => {
+    setCfg(previous => {
+      const marking = previous.marking ?? { defaultMarks: 1, ranges: [], overrides: {} };
+      const overrides = { ...(marking.overrides ?? {}) };
+      if (`${value}`.trim() === '') delete overrides[question];
+      else overrides[question] = value;
+      return { ...previous, marking: { ...marking, overrides } };
+    });
+  };
+
   return (
     <div class="answer-key-grid">
       {blocks.map((questions, block) => (
@@ -39,8 +50,17 @@ export function AnswerKeyGrid({ cfg, setCfg, currentlyScanning }) {
             const prefix = `ak_${question + 1}_`;
             const multiAnswer = Boolean(cfg.hasMultiAnswer && cfg.multiAnswerQuestions?.[question]);
             return (
-              <div class="answer-key-row" key={question}>
+              <div class={`answer-key-row${cfg.hasMultiAnswer ? ' has-multi' : ''}${manualMarks ? ' has-marks' : ''}`} key={question}>
                 <span class="answer-key-row__number">{question + 1}</span>
+                {manualMarks ? (
+                  <label class="answer-key-row__marks" title={`Effective value: ${marksForQuestion(question, cfg.marking)} marks`}>
+                    <span class="visually-hidden">Marks for question {question + 1}</span>
+                    <input type="number" min="0" step="any" disabled={currentlyScanning}
+                      placeholder={`${marksForQuestion(question, cfg.marking)}`}
+                      value={cfg.marking?.overrides?.[question] ?? ''}
+                      onInput={event => setQuestionMarks(question, event.target.value)} />
+                  </label>
+                ) : null}
                 {cfg.hasMultiAnswer ? <>
                   <input
                     type="checkbox"

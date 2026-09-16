@@ -20,7 +20,7 @@ export function ComparisonConfig({ comparison, setComparison, scannerConfig, cur
   return (
     <div class="comparison-config">
       <div>
-        <p class="comparison-config__title">Optional comparison</p>
+        <p class="comparison-config__title">Compare with existing results</p>
         <p class="comparison-config__description">Load a raw results CSV to highlight differences while scanning.</p>
       </div>
       {'filename' in comparison ? (
@@ -41,9 +41,9 @@ export function ComparisonConfig({ comparison, setComparison, scannerConfig, cur
             ['cfg_checkInitials', 'Initials'],
             ['cfg_checkAnswers', 'Answers']
           ].map(([field, label]) => (
-            <label key={field} htmlFor={field}>
+            <label class="compact-check compact-check--pill" key={field} htmlFor={field}>
               <input autocomplete="off" id={field} name={field} type="checkbox"
-                class="form-check-input" disabled={currentlyScanning} checked={comparison[field]}
+                disabled={currentlyScanning} checked={comparison[field]}
                 onChange={setFlag(field)} />
               {label}
             </label>

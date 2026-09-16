@@ -1,5 +1,5 @@
 import { Fragment } from 'preact';
-import { ANSWER_OPTIONS, answerIncludes, calculateScore, isAnswerCorrect } from '../examDomain.mjs';
+import { ANSWER_OPTIONS, answerIncludes, calculateScore, isAnswerCorrect, marksForQuestion } from '../examDomain.mjs';
 
 const multiAnswerQuestionsFor = cfg => cfg.hasMultiAnswer ? (cfg.multiAnswerQuestions ?? {}) : {};
 const average = values => values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -23,7 +23,9 @@ export function ExamAnalysis({ examResults, cfg }) {
   const questions = Object.keys(cfg.answerKey)
     .filter(question => Object.values(cfg.answerKey[question]).some(Boolean))
     .map(Number);
-  const scores = examResults.map(result => calculateScore(result.answers, cfg.answerKey, multiAnswerQuestions));
+  const scores = examResults.map(result => calculateScore(
+    result.answers, cfg.answerKey, multiAnswerQuestions, cfg.marking
+  ));
   const sortedScores = [...scores].sort((left, right) => left - right);
   const median = sortedScores.length % 2 === 0
     ? average([sortedScores[sortedScores.length / 2 - 1], sortedScores[sortedScores.length / 2]])
@@ -33,7 +35,8 @@ export function ExamAnalysis({ examResults, cfg }) {
     const correct = examResults.map(result => isAnswerCorrect(
       result.answers[question], cfg.answerKey[question], Boolean(multiAnswerQuestions[question])
     ));
-    const scoresWithoutQuestion = scores.map((score, index) => score - (correct[index] ? 1 : 0));
+    const questionMarks = marksForQuestion(question, cfg.marking);
+    const scoresWithoutQuestion = scores.map((score, index) => score - (correct[index] ? questionMarks : 0));
     const deviation = standardDeviation(scoresWithoutQuestion);
     const options = Object.fromEntries(ANSWER_OPTIONS.map(option => {
       const selected = examResults.map(result => answerIncludes(result.answers[question], option));
@@ -80,7 +83,7 @@ export function ExamAnalysis({ examResults, cfg }) {
             <tbody>
               {questions.map(question => <Fragment key={question}>
                 <tr class={metricClass(metrics[question].discrimination)}>
-                  <th>Q{question + 1}</th><td>Overall</td>
+                  <th>Q{question + 1} · {marksForQuestion(question, cfg.marking)} marks</th><td>Overall</td>
                   <td>{metrics[question].difficulty.toFixed(3)}</td>
                   <td>{metrics[question].discrimination.toFixed(3)}</td>
                 </tr>

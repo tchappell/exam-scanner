@@ -23,6 +23,7 @@ export function ResultsFileExchange({
       examResults,
       answerKey: cfg.answerKey,
       multiAnswerQuestions: multiAnswerQuestionsFor(cfg),
+      marking: cfg.marking,
       pdfName
     });
     downloadFile('results.csv', new Blob([createCSV(rows)], { type: 'text/csv' }));
@@ -49,6 +50,7 @@ export function ResultsFileExchange({
       twoSided: cfg.twoSided,
       hasMultiAnswer: cfg.hasMultiAnswer,
       multiAnswerQuestions: multiAnswerQuestionsFor(cfg),
+      marking: cfg.marking,
       examResults: savedResults,
       answerKey: cfg.answerKey
     };
@@ -86,7 +88,8 @@ export function ResultsFileExchange({
         twoSided: dataset.twoSided,
         answerKey: dataset.answerKey,
         hasMultiAnswer: Boolean(dataset.hasMultiAnswer),
-        multiAnswerQuestions: dataset.multiAnswerQuestions ?? {}
+        multiAnswerQuestions: dataset.multiAnswerQuestions ?? {},
+        marking: dataset.marking ?? previous.marking
       }));
       setExamResults(loadedResults);
     } catch (error) {
@@ -101,13 +104,13 @@ export function ResultsFileExchange({
       </div>
       <div class="export-grid">
         <button class="export-card" disabled={examResults.length === 0} onClick={exportResults}>
-          <strong>Grade summary</strong><span>results.csv · scores and student details</span>
+          <strong>Download grade summary</strong><span>results.csv · scores and student details</span>
         </button>
         <button class="export-card" disabled={examResults.length === 0} onClick={exportRawResults}>
-          <strong>Detailed responses</strong><span>raw_results.csv · every answer position</span>
+          <strong>Download detailed responses</strong><span>raw_results.csv · every answer position</span>
         </button>
         <button class="export-card" disabled={examResults.length === 0} onClick={exportDataset}>
-          <strong>Working dataset</strong><span>results.json · resume this scan later</span>
+          <strong>Download working dataset</strong><span>results.json · resume this scan later</span>
         </button>
       </div>
       <div class="import-grid">

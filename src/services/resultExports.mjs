@@ -15,6 +15,7 @@ export function buildResultsCsvRows({
   examResults,
   answerKey,
   multiAnswerQuestions = {},
+  marking,
   pdfName,
   date = new Date(),
   unitCode = DEFAULT_UNIT_CODE
@@ -29,7 +30,7 @@ export function buildResultsCsvRows({
       result.student_number,
       exportSurname(result.surname),
       result.initials.toUpperCase(),
-      calculateScore(result.answers, answerKey, multiAnswerQuestions),
+      calculateScore(result.answers, answerKey, multiAnswerQuestions, marking),
       filename,
       result.page
     ])

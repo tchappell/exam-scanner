@@ -22,7 +22,7 @@ function ReviewChoiceButtons({ answer, multiple, onChange }) {
   );
 }
 
-function IdentityDifference({ diff, examResults, setExamResults, field, showActioned }) {
+function IdentityDifference({ diff, examResults, setExamResults, field, showActioned, onViewPage, onViewImage }) {
   const [actioned, setActioned] = useState(false);
   if (actioned && !showActioned) return null;
 
@@ -34,15 +34,20 @@ function IdentityDifference({ diff, examResults, setExamResults, field, showActi
 
   return (
     <article class={`review-item ${actioned ? 'is-actioned' : ''}`}>
-      <div class="review-item__image"><img src={diff.img} alt="Scanned field requiring comparison" /></div>
+      <button type="button" class="review-item__image review-item__image--identity"
+        onClick={() => onViewImage?.(diff.img, `Scanned ${field} — PDF page ${result.page}`)}>
+        <img src={diff.img} alt="Scanned field requiring comparison" />
+        <span>Enlarge crop</span>
+      </button>
       <div class="review-item__body">
-        <p class="review-item__location">Page {result.page}</p>
+        <div class="review-item__heading"><p class="review-item__location">PDF page {result.page}</p>
+          {onViewPage ? <button type="button" onClick={() => onViewPage(result.page, `PDF page ${result.page}`)}>View PDF page</button> : null}</div>
         <div class="review-comparison-values">
-          <button type="button" class="btn btn-sm btn-primary" onClick={() => choose(diff.origValue)}>
-            <span>Comparison</span>{diff.origValue || '(blank)'}
+          <button type="button" class="btn btn-sm review-value-button" onClick={() => choose(diff.origValue)}>
+            <span>Existing result</span>{diff.origValue || '(blank)'}
           </button>
-          <button type="button" class="btn btn-sm btn-secondary" onClick={() => choose(diff.scannedValue)}>
-            <span>Scanned</span>{diff.scannedValue || '(blank)'}
+          <button type="button" class="btn btn-sm review-value-button" onClick={() => choose(diff.scannedValue)}>
+            <span>Scanner result</span>{diff.scannedValue || '(blank)'}
           </button>
           <div class="field-group">
             <label htmlFor={`diff_${diff.i}_${field}_e`}>Enter another value</label>
@@ -61,15 +66,22 @@ function IdentityDifference({ diff, examResults, setExamResults, field, showActi
   );
 }
 
-function AnswerDifference({ cfg, diff, examResults, setExamResults, showActioned }) {
+function AnswerDifference({ cfg, diff, examResults, setExamResults, showActioned, onViewPage, onViewImage }) {
   const [actioned, setActioned] = useState(false);
   if (actioned && !showActioned) return null;
 
-  const answer = examResults[diff.i].answers[diff.idx];
+  const result = examResults[diff.i];
+  const answer = result.answers[diff.idx];
+  const physicalPage = result.page + (cfg.twoSided && diff.idx >= 40 ? 1 : 0);
   return (
     <article class={`review-item review-item--answer ${actioned ? 'is-actioned' : ''}`}>
-      <div class="review-item__image"><img src={diff.img} alt={`Scanned answer for question ${diff.idx + 1}`} /></div>
+      <button type="button" class="review-item__image" onClick={() => onViewImage?.(diff.img, `Question ${diff.idx + 1} crop`)}>
+        <img src={diff.img} alt={`Scanned answer for question ${diff.idx + 1}`} />
+      </button>
       <div class="review-item__body">
+        {onViewPage ? <div class="review-item__heading">
+          <span></span><button type="button" onClick={() => onViewPage(physicalPage, `PDF page ${physicalPage} — question ${diff.idx + 1}`)}>View PDF page</button>
+        </div> : null}
         <p class="review-item__location">Page {examResults[diff.i].page} · Question {diff.idx + 1}</p>
         <ReviewChoiceButtons
           answer={answer}
@@ -87,7 +99,7 @@ function AnswerDifference({ cfg, diff, examResults, setExamResults, showActioned
   );
 }
 
-export function ComparisonReview({ cfg, setCfg, comparison, examResults, setExamResults }) {
+export function ComparisonReview({ cfg, setCfg, comparison, examResults, setExamResults, onViewPage, onViewImage }) {
   if (!('results' in comparison)) return null;
 
   const diffs = examResults.flatMap((row, i) => (row.diffs ?? []).map((diff, j) => ({ ...diff, i, j })));
@@ -113,26 +125,29 @@ export function ComparisonReview({ cfg, setCfg, comparison, examResults, setExam
         <section key={field} class="review-group">
           <h4>{title}</h4>
           {group.map(diff => <IdentityDifference key={`${diff.i}-${diff.j}`} diff={diff} examResults={examResults}
-            setExamResults={setExamResults} field={field} showActioned={cfg.showActioned} />)}
+            setExamResults={setExamResults} field={field} showActioned={cfg.showActioned}
+            onViewPage={onViewPage} onViewImage={onViewImage} />)}
         </section>
       ) : null)}
       {answerDiffs.length > 0 ? (
         <section class="review-group">
           <h4>Answer differences</h4>
           {answerDiffs.map(diff => <AnswerDifference key={`${diff.i}-${diff.j}`} cfg={cfg} diff={diff}
-            examResults={examResults} setExamResults={setExamResults} showActioned={cfg.showActioned} />)}
+            examResults={examResults} setExamResults={setExamResults} showActioned={cfg.showActioned}
+            onViewPage={onViewPage} onViewImage={onViewImage} />)}
         </section>
       ) : null}
     </div>
   );
 }
 
-function QuestionableItem({ cfg, item, examResults, setExamResults, showActioned }) {
+function QuestionableItem({ cfg, item, examResults, setExamResults, showActioned, onViewPage, onViewImage }) {
   const [actioned, setActioned] = useState(false);
   if (actioned && !showActioned) return null;
 
   const { resultIndex, question, image } = item;
   const result = examResults[resultIndex];
+  const physicalPage = result.page + (cfg.twoSided && question >= 40 ? 1 : 0);
   return (
     <article
       class={`review-item review-item--answer ${actioned ? 'is-actioned' : ''}`}
@@ -141,8 +156,13 @@ function QuestionableItem({ cfg, item, examResults, setExamResults, showActioned
       data-question={question + 1}
       data-scanned-answer={result.raw_answers[question].scanned_value}
     >
-      <div class="review-item__image"><img src={image} alt={`Questionable scan for question ${question + 1}`} /></div>
+      <button type="button" class="review-item__image" onClick={() => onViewImage?.(image, `Question ${question + 1} crop`)}>
+        <img src={image} alt={`Questionable scan for question ${question + 1}`} />
+      </button>
       <div class="review-item__body">
+        {onViewPage ? <div class="review-item__heading"><span></span>
+          <button type="button" onClick={() => onViewPage(physicalPage, `PDF page ${physicalPage} — question ${question + 1}`)}>View PDF page</button>
+        </div> : null}
         <p class="review-item__location">Page {result.page} · Question {question + 1}</p>
         <ReviewChoiceButtons
           answer={result.answers[question]}
@@ -160,7 +180,7 @@ function QuestionableItem({ cfg, item, examResults, setExamResults, showActioned
   );
 }
 
-export function QuestionableReview({ cfg, setCfg, examResults, setExamResults }) {
+export function QuestionableReview({ cfg, setCfg, examResults, setExamResults, onViewPage, onViewImage }) {
   const [sort, setSort] = useState(['page', 'asc']);
   if (!cfg.showQuestionable || examResults.length === 0) return null;
 
@@ -198,7 +218,8 @@ export function QuestionableReview({ cfg, setCfg, examResults, setExamResults })
       </div>
       {items.length === 0 ? <p class="review-panel__empty">No questionable scans detected.</p> : items.map(item => (
         <QuestionableItem key={`${item.resultIndex}-${item.question}`} cfg={cfg} item={item}
-          examResults={examResults} setExamResults={setExamResults} showActioned={cfg.showQActioned} />
+          examResults={examResults} setExamResults={setExamResults} showActioned={cfg.showQActioned}
+          onViewPage={onViewPage} onViewImage={onViewImage} />
       ))}
     </div>
   );

@@ -32,7 +32,9 @@ function ResultRow({ cfg, result, index, setExamResults, onDownloadAnnotatedPdf 
       <div><input autocomplete="off" type="text" data-field="initials" value={result.initials}
         class="w-100" style={{ textTransform: 'uppercase' }}
         onChange={event => updateExamResult(setExamResults, index, { initials: event.target.value })} /></div>
-      <div class="ps-2" data-field="score">{calculateScore(result.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg))}</div>
+      <div class="ps-2" data-field="score">{calculateScore(
+        result.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking
+      )}</div>
       {fixAnswers(cfg, result.answers).map((answer, question) => {
         const multiple = Boolean(multiAnswerQuestionsFor(cfg)[question]);
         const choices = multiple ? ANSWER_COMBINATIONS : [' ', ...ANSWER_OPTIONS];
@@ -92,8 +94,8 @@ export function ExamResultsTable({ cfg, examResults, setExamResults, onDownloadA
       }
       if (column === 'page') return (left.page - right.page) * direction;
       if (column === 'score') {
-        return (calculateScore(left.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg))
-          - calculateScore(right.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg))) * direction;
+        return (calculateScore(left.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking)
+          - calculateScore(right.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking)) * direction;
       }
       return collator.compare(`${left[column]}`, `${right[column]}`) * direction;
     });

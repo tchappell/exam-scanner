@@ -1,4 +1,9 @@
 export const ANSWER_OPTIONS = Object.freeze(['A', 'B', 'C', 'D', 'E']);
+export const DEFAULT_MARKING = Object.freeze({
+  defaultMarks: 1,
+  ranges: [],
+  overrides: {}
+});
 
 export function normaliseAnswer(answer) {
   const value = Array.isArray(answer) ? answer.join('') : `${answer ?? ''}`;
@@ -42,11 +47,37 @@ export function createAnswerKey(answers) {
   }));
 }
 
-export function calculateScore(answers, answerKey, multiAnswerQuestions = {}) {
+function validMark(value, fallback = 0) {
+  const mark = Number(value);
+  return Number.isFinite(mark) && mark >= 0 ? mark : fallback;
+}
+
+export function marksForQuestion(question, marking = DEFAULT_MARKING) {
+  const fallback = validMark(marking?.defaultMarks, 1);
+  const override = marking?.overrides?.[question];
+  if (`${override ?? ''}`.trim() !== '') return validMark(override, fallback);
+
+  let marks = fallback;
+  for (const range of marking?.ranges ?? []) {
+    if (question >= Number(range.from) && question <= Number(range.to)) {
+      marks = validMark(range.marks, fallback);
+    }
+  }
+  return marks;
+}
+
+export function calculateMaximumScore(answerKey, marking = DEFAULT_MARKING) {
+  return Object.entries(answerKey ?? {}).reduce((total, [question, entry]) =>
+    total + (Object.values(entry ?? {}).some(Boolean) ? marksForQuestion(Number(question), marking) : 0), 0);
+}
+
+export function calculateScore(answers, answerKey, multiAnswerQuestions = {}, marking = DEFAULT_MARKING) {
   let score = 0;
 
   for (let i = 0; i < answers.length; i++) {
-    if (isAnswerCorrect(answers[i], answerKey[i], Boolean(multiAnswerQuestions[i]))) score++;
+    if (isAnswerCorrect(answers[i], answerKey[i], Boolean(multiAnswerQuestions[i]))) {
+      score += marksForQuestion(i, marking);
+    }
   }
 
   return score;

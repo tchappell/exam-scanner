@@ -65,3 +65,14 @@ test('multi-answer responses remain in one canonical question column', () => {
   });
   assert.equal(scoreRows[1][5], 1);
 });
+
+test('results export applies shared question weights', () => {
+  const rows = buildResultsCsvRows({
+    examResults,
+    answerKey: { 0: { A: true }, 1: { B: true } },
+    marking: { defaultMarks: 1, ranges: [{ from: 1, to: 1, marks: 2.5 }], overrides: {} },
+    date: '2026-09-15'
+  });
+
+  assert.equal(rows[1][5], 3.5);
+});

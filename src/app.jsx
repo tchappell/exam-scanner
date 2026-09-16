@@ -14,6 +14,7 @@ import { ExamResultsTable } from './components/ExamResultsTable.jsx';
 import { ResultsFileExchange } from './components/ResultsFileExchange.jsx';
 import { CanvasTransfer } from './components/CanvasTransfer.jsx';
 import { ExamAnalysis } from './components/ExamAnalysis.jsx';
+import { ViewerDialog } from './components/ViewerDialog.jsx';
 import { examResultFilename } from './services/examArtifacts.mjs';
 import { createAnnotatedExamPdf } from './services/pdfArtifacts.mjs';
 import { loadBrowserPdf, renderPdfPagePreview } from './services/browserPdfAdapter.mjs';
@@ -30,6 +31,7 @@ export function App() {
   const [pdfPage, setPdfPage] = useState(1);
   const [previewURI, setPreviewURI] = useState(null);
   const [comparison, setComparison] = useState({});
+  const [viewer, setViewer] = useState(null);
   const [importCSVPage1, setImportCSVPage1] = useState(1);
   const [cfg, setCfg] = useState({
     startAt: 1,
@@ -39,6 +41,7 @@ export function App() {
     hasMultiAnswer: false,
     multiAnswerQuestions: {},
     answerKey: {},
+    marking: { defaultMarks: 1, ranges: [], overrides: {} },
     showQuestionable: true,
     showQActioned: true,
     showActioned: true
@@ -195,7 +198,7 @@ export function App() {
     <div class="exam-scanner-app">
       <div class="app-backdrop" aria-hidden="true"></div>
       <div class="app-container">
-        <AppHeader pdfName={pdfName} resultCount={examResults.length} currentlyScanning={currentlyScanning} />
+        <AppHeader pdfName={pdfName} resultCount={examResults.length} />
 
         <main class="workspace">
           <WorkspaceSection
@@ -203,36 +206,35 @@ export function App() {
             number="1"
             eyebrow="Document"
             title="Set up the scan"
-            description="Load a PDF, choose its page range and describe the answer-sheet format."
+            description="Load a PDF, configure the scan and set the answer key."
+            actions={<span class="section-count">{keyedQuestionCount} keyed</span>}
           >
             <div class="setup-layout">
-              <PdfSetupPanel
-                pdf={pdf}
-                pdfName={pdfName}
-                previewURI={previewURI}
-                currentPage={pdfPage}
-                currentlyScanning={currentlyScanning}
-                onSelect={pdfSelected}
-                onRemove={pdfDeselected}
-                onPrevious={prevPage}
-                onNext={nextPage}
-              />
-              <div class="setup-layout__options">
+              <div class="setup-column">
+                <h3>PDF</h3>
+                <PdfSetupPanel
+                  pdf={pdf}
+                  pdfName={pdfName}
+                  previewURI={previewURI}
+                  currentPage={pdfPage}
+                  currentlyScanning={currentlyScanning}
+                  onSelect={pdfSelected}
+                  onRemove={pdfDeselected}
+                  onPrevious={prevPage}
+                  onNext={nextPage}
+                />
+              </div>
+              <div class="setup-column setup-layout__options">
+                <h3>Scan configuration</h3>
                 <ScannerConfig config={cfg} setConfig={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
                 <ComparisonConfig comparison={comparison} setComparison={setComparison} scannerConfig={cfg} currentlyScanning={currentlyScanning} />
               </div>
+              <div class="setup-column setup-column--answer" id="answer-key">
+                <h3>Answer key</h3>
+                <p class="setup-column__description">Select every accepted answer. Enable Multi only where the complete set is required.</p>
+                <AnswerKeyPanel cfg={cfg} setCfg={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
+              </div>
             </div>
-          </WorkspaceSection>
-
-          <WorkspaceSection
-            id="answer-key"
-            number="2"
-            eyebrow="Marking"
-            title="Configure the answer key"
-            description="Select every accepted answer. Enable Multi only where the complete selected set is required."
-            actions={<span class="section-count">{keyedQuestionCount} keyed</span>}
-          >
-            <AnswerKeyPanel cfg={cfg} setCfg={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
           </WorkspaceSection>
 
           <div class="scan-action-panel">
@@ -255,7 +257,7 @@ export function App() {
 
           <WorkspaceSection
             id="results"
-            number="3"
+            number="2"
             eyebrow="Verification"
             title="Review scanned exams"
             description="Confirm student details, answers and scores. Question columns scroll horizontally."
@@ -271,15 +273,19 @@ export function App() {
                 }
               }} />
             <ComparisonReview cfg={cfg} setCfg={setCfg} comparison={comparison}
-              examResults={examResults} setExamResults={setExamResults} />
+              examResults={examResults} setExamResults={setExamResults}
+              onViewPage={pdf ? ((page, title) => setViewer({ type: 'pdf', page, title })) : null}
+              onViewImage={(src, title) => setViewer({ type: 'image', src, title })} />
             <QuestionableReview cfg={cfg} setCfg={setCfg}
-              examResults={examResults} setExamResults={setExamResults} />
+              examResults={examResults} setExamResults={setExamResults}
+              onViewPage={pdf ? ((page, title) => setViewer({ type: 'pdf', page, title })) : null}
+              onViewImage={(src, title) => setViewer({ type: 'image', src, title })} />
             <ExamAnalysis examResults={examResults} cfg={cfg} />
           </WorkspaceSection>
 
           <WorkspaceSection
             id="exports"
-            number="4"
+            number="3"
             eyebrow="Output"
             title="Export and continue"
             description="Download results, resume previous work, or prepare grades for Canvas."
@@ -300,6 +306,7 @@ export function App() {
               createAnnotatedPdf={createAnnotatedExamPdf} />
           </WorkspaceSection>
         </main>
+        <ViewerDialog viewer={viewer} pdf={pdf} onClose={() => setViewer(null)} />
       </div>
     </div>
   );

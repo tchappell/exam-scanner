@@ -28,10 +28,9 @@ export function WorkspaceSection({
   );
 }
 
-export function AppHeader({ pdfName, resultCount, currentlyScanning }) {
+export function AppHeader({ pdfName, resultCount }) {
   const steps = [
     { href: '#setup', label: 'Set up', ready: Boolean(pdfName) },
-    { href: '#answer-key', label: 'Answer key', ready: Boolean(pdfName) },
     { href: '#results', label: 'Review', ready: resultCount > 0 },
     { href: '#exports', label: 'Export', ready: resultCount > 0 }
   ];
@@ -39,19 +38,11 @@ export function AppHeader({ pdfName, resultCount, currentlyScanning }) {
   return (
     <header class="app-header">
       <div class="app-header__brand">
-        <span class="app-header__mark" aria-hidden="true">ES</span>
         <div>
           <p class="app-header__eyebrow">QUT Test Answer Sheets</p>
           <h1>Exam Scanner</h1>
-          <p class="app-header__description">Prepare, scan, review and export—entirely in your browser.</p>
+          <p class="app-header__description">Scanned exams never leave your browser.</p>
         </div>
-      </div>
-      <div class="app-header__status" aria-live="polite">
-        <span class={`status-pill ${currentlyScanning ? 'status-pill--active' : ''}`}>
-          <span class="status-pill__dot" aria-hidden="true"></span>
-          {currentlyScanning ? 'Scanning' : 'Ready'}
-        </span>
-        <span class="status-pill">{resultCount} {resultCount === 1 ? 'exam' : 'exams'}</span>
       </div>
       <nav class="workflow-nav" aria-label="Exam workflow">
         {steps.map((step, index) => (

@@ -26,7 +26,7 @@ export function useScanWorkflow({ pdf, config, setConfig, comparison, scannerCli
     onProgress: ({ completed, total }) => setProgress([completed, total]),
     onResult: result => setResults(previous => [...previous, result]),
     onAnswerKey: answerKey => setConfig(previous => ({ ...previous, answerKey })),
-    onIssue: issue => reportIssue(issue.stage, issue.error, issue.page)
+    onIssue: issue => reportIssue(issue.stage, issue.error, issue.error?.pageNumber ?? issue.page)
   }), [reportIssue, setConfig]);
 
   const run = useCallback(async operation => {

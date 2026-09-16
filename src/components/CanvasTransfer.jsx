@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { calculateScore, normaliseStudentNum } from '../examDomain.mjs';
+import { calculateMaximumScore, calculateScore, normaliseStudentNum } from '../examDomain.mjs';
 import { matchExamResultsToCanvas } from '../services/canvasMatching.mjs';
 import { examResultFilename, hashBlob } from '../services/examArtifacts.mjs';
 import { updateExamResult } from '../services/resultState.mjs';
@@ -37,9 +37,14 @@ function MatchCard({ children, selected, onSelect, side }) {
   );
 }
 
-function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, matches, marksPerQuestion, marksAreValid, createAnnotatedPdf }) {
+const DEFAULT_COMMENT = 'Your marked test answer sheet is attached. Please contact the teaching team if you believe any response has been recorded incorrectly.';
+
+function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, matches, createAnnotatedPdf }) {
   const [apiKey, setApiKey] = useState('');
   const [courseCode, setCourseCode] = useState('');
+  const [attachPdf, setAttachPdf] = useState(true);
+  const [includeComment, setIncludeComment] = useState(true);
+  const [comment, setComment] = useState(DEFAULT_COMMENT);
   const assignmentCodePart = assignment.fullName.split('(').at(-1);
   const assignmentCode = Number.parseInt(assignmentCodePart.slice(0, -1), 10);
 
@@ -66,8 +71,8 @@ function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, mat
       addBlobToZip(zip, filename, blob);
       grades.push([
         canvasCSV[canvasIndex][1],
-        `${calculateScore(result.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg)) * marksPerQuestion}`,
-        await hashBlob(blob),
+        `${calculateScore(result.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking)}`,
+        (await hashBlob(blob)).slice(0, 8),
         filename
       ]);
     }
@@ -76,7 +81,10 @@ function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, mat
       + `const COURSE_ID = ${JSON.stringify(courseCode)};\n`
       + `const ASSIGNMENT_ID = ${JSON.stringify(assignmentCode)};\n`
       + `const API_KEY = ${JSON.stringify(apiKey)};\n\n`;
-    addBlobToZip(zip, 'UploadMarks.js', new Blob([scriptHeading, uploadMarks]));
+    const scriptOptions = `const ATTACH_PDFS = ${JSON.stringify(attachPdf)};\n`
+      + `const INCLUDE_COMMENT = ${JSON.stringify(includeComment)};\n`
+      + `const COMMENT = ${JSON.stringify(comment)};\n\n`;
+    addBlobToZip(zip, 'UploadMarks.js', new Blob([scriptHeading, scriptOptions, uploadMarks]));
     await downloadZip(zip);
   };
 
@@ -87,16 +95,26 @@ function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, mat
       <div class="canvas-pdf-export__fields">
         <div class="field-group">
           <label htmlFor="apiKey">Canvas API key</label>
-          <input type="password" id="apiKey" value={apiKey} onInput={event => setApiKey(event.target.value)} />
+          <input type="password" id="apiKey" autocomplete="off" value={apiKey} onInput={event => setApiKey(event.target.value)} />
         </div>
         <div class="field-group">
           <label htmlFor="courseCode">Canvas course code</label>
           <input type="number" id="courseCode" value={courseCode} onInput={event => setCourseCode(event.target.value)} />
         </div>
       </div>
-      <button type="button" class="btn btn-outline-primary"
-        disabled={!marksAreValid}
-        onClick={exportZip}>Export PDF ZIP</button>
+      <div class="canvas-upload-options">
+        <label class="compact-check"><input type="checkbox" checked={attachPdf}
+          onChange={event => setAttachPdf(event.target.checked)} />Attach marked PDF</label>
+        <label class="compact-check"><input type="checkbox" checked={attachPdf && includeComment} disabled={!attachPdf}
+          onChange={event => setIncludeComment(event.target.checked)} />Include message</label>
+        {includeComment ? <div class="field-group canvas-comment-field">
+          <label htmlFor="canvasComment">Message to student</label>
+          <textarea id="canvasComment" rows="3" value={comment} onInput={event => setComment(event.target.value)} />
+        </div> : null}
+      </div>
+      {!attachPdf ? <p class="form-text">The upload script will update grades only.</p> : null}
+      <p class="form-text">The API key is written only into the downloaded script; this web app never stores it.</p>
+      <button type="button" class="btn btn-outline-primary" onClick={exportZip}>Export upload ZIP</button>
     </div>
   );
 }
@@ -106,7 +124,6 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
   const [assignments, setAssignments] = useState([]);
   const [assignmentIndex, setAssignmentIndex] = useState('-1');
   const [matchSelection, setMatchSelection] = useState(null);
-  const [marksPerQuestion, setMarksPerQuestion] = useState(1);
   const { examResultMatches, unmatchedExamResults, unmatchedStudents } = matchExamResultsToCanvas(examResults, canvasCSV);
 
   const loadGradebook = async event => {
@@ -149,16 +166,15 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
   };
 
   const selectedAssignment = assignmentIndex === '-1' ? null : assignments[Number(assignmentIndex)];
-  const markValue = Number(marksPerQuestion);
-  const marksAreValid = `${marksPerQuestion}`.trim() !== '' && Number.isFinite(markValue) && markValue >= 0;
   const exportCanvasCsv = () => {
     const csv = structuredClone(canvasCSV);
     for (const [examIndex, canvasIndex] of examResultMatches) {
       csv[canvasIndex][selectedAssignment.col] = calculateScore(
         examResults[examIndex].answers,
         cfg.answerKey,
-        multiAnswerQuestionsFor(cfg)
-      ) * markValue;
+        multiAnswerQuestionsFor(cfg),
+        cfg.marking
+      );
     }
     downloadFile('canvas-export.csv', new Blob([createCSV(csv)], { type: 'text/csv' }));
   };
@@ -217,26 +233,18 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
           </select>
         </div>
         {selectedAssignment ? <>
-          <div class="field-group">
-            <label htmlFor="marksPerQuestion">Points per question</label>
-            <input id="marksPerQuestion" type="number" min="0" step="any" value={marksPerQuestion}
-              onInput={event => setMarksPerQuestion(event.target.value)} />
-          </div>
           <div class="canvas-assignment__summary">
             <span>{selectedAssignment.totalMarks} assignment points</span>
-            <span>{marksAreValid
-              ? Object.values(cfg.answerKey).filter(answer => Object.keys(answer).length > 0).length * markValue
-              : 'Invalid'} scanner points</span>
+            <span>{calculateMaximumScore(cfg.answerKey, cfg.marking)} scanner points</span>
             <span>{examResultMatches.size} grades to export</span>
           </div>
-          <button type="button" class="btn btn-primary" disabled={!marksAreValid} onClick={exportCanvasCsv}>Export Canvas CSV</button>
+          <button type="button" class="btn btn-primary" onClick={exportCanvasCsv}>Export Canvas CSV</button>
         </> : null}
       </div>
 
       {selectedAssignment && pdf && examResults.some(result => 'homographies' in result) ? (
         <PerStudentPdfExport examResults={examResults} cfg={cfg} pdf={pdf} assignment={selectedAssignment}
-          canvasCSV={canvasCSV} matches={examResultMatches} marksPerQuestion={markValue} marksAreValid={marksAreValid}
-          createAnnotatedPdf={createAnnotatedPdf} />
+          canvasCSV={canvasCSV} matches={examResultMatches} createAnnotatedPdf={createAnnotatedPdf} />
       ) : null}
     </section>
   );

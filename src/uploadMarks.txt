@@ -1,8 +1,7 @@
-const COMMENT = '<p>See attached PDF for details.</p>';
 const PROGRESS_BAR_LEN = 20;
+const MANAGED_FILENAME_PREFIX = 'exam_scan_';
 
 const fs = require('node:fs/promises');
-
 const OPTIONS = {
   headers: {
     'Authorization': `Bearer ${API_KEY}`,
@@ -11,109 +10,99 @@ const OPTIONS = {
   }
 };
 
+async function checkedFetch(url, options) {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    throw new Error(`Received ${response.status}: ${response.statusText} from ${url}\n${await response.text()}`);
+  }
+  return response;
+}
+
+function normaliseComment(value) {
+  return `${value ?? ''}`
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'")
+    .trim();
+}
+
 (async () => {
-  const grade = async (user_id, score, hash, attachment) => {
-    const filename = `exam_scan_${hash}.pdf`;
-    const url = `https://canvas.qut.edu.au/api/v1/courses/${COURSE_ID}/assignments/${ASSIGNMENT_ID}/submissions/${user_id}?include[]=submission_html_comments`;
-
-    const res = await fetch(url, {method: "GET", ...OPTIONS});
-    if (!res.ok) {
-      throw new Error(`Received ${res.status}: ${res.statusText} from ${url}\n${await res.text()}`);
-    }
-    const submission = await res.json();
-    const submission_comments = submission.submission_html_comments.filter(c => c.comment === COMMENT);
-
-    // Delete every submission comment with:
-    // - an attachment with the wrong filename
-    // - the wrong score
+  const grade = async (userId, score, hash, attachment) => {
+    const filename = `${MANAGED_FILENAME_PREFIX}${hash}.pdf`;
+    const submissionUrl = `https://canvas.qut.edu.au/api/v1/courses/${COURSE_ID}/assignments/${ASSIGNMENT_ID}/submissions/${userId}`;
+    const response = await checkedFetch(`${submissionUrl}?include[]=submission_html_comments`, { method: 'GET', ...OPTIONS });
+    const submission = await response.json();
+    const managedComments = (submission.submission_html_comments ?? []).filter(comment =>
+      (comment.attachments ?? []).some(item => item.filename?.startsWith(MANAGED_FILENAME_PREFIX))
+    );
+    const expectedComment = INCLUDE_COMMENT ? COMMENT : '';
     let canReuse = false;
-    for (const comment of submission_comments) {
-      if (submission.grade !== score ||
-        comment?.attachments?.[0]?.filename !== filename) {
-        // Delete all attachments of this comment
-        for (const attachment of (comment?.attachments ?? [])) {
-          const url = `https://canvas.qut.edu.au/api/v1/files/${attachment.id}`;
-          const res = await fetch(url, {method: "DELETE", ...OPTIONS});
-          if (!res.ok) {
-            throw new Error(`Received ${res.status}: ${res.statusText} from ${url}\n${await res.text()}`);
-          }
-        }
-        
-        { // Delete the comment itself
-          const url = `https://canvas.qut.edu.au/api/v1/courses/${COURSE_ID}/assignments/${ASSIGNMENT_ID}/submissions/${user_id}/comments/${comment.id}`;
-          const res = await fetch(url, {method: "DELETE", ...OPTIONS});
-          if (!res.ok) {
-            throw new Error(`Received ${res.status}: ${res.statusText} from ${url}\n${await res.text()}`);
-          }
-        }
-      } else {
+
+    for (const comment of managedComments) {
+      const existingFilename = comment.attachments?.[0]?.filename;
+      const reusable = ATTACH_PDFS
+        && `${submission.grade}` === `${score}`
+        && existingFilename === filename
+        && normaliseComment(comment.comment) === normaliseComment(expectedComment);
+      if (reusable) {
         canReuse = true;
-      }
-    }
-    if (!canReuse) {
-      let file_id;
-      { // Upload PDF attachment
-        const fileBlob = new Blob([await fs.readFile(attachment)]);
-
-        const fileinfo = {
-          name: filename,
-          size: fileBlob.size
-        };
-        const url = `https://canvas.qut.edu.au/api/v1/courses/${COURSE_ID}/assignments/${ASSIGNMENT_ID}/submissions/${user_id}/comments/files`;
-        const res = await fetch(url, {method: "POST", body: JSON.stringify(fileinfo), ...OPTIONS});
-        if (!res.ok) {
-          throw new Error(`Received ${res.status}: ${res.statusText} from ${url}\n${await res.text()}`);
-        }
-        const uploadresult = await res.json();
-        let formdata = new FormData();
-        for (let k in uploadresult.upload_params) {
-          formdata.append(k, uploadresult.upload_params[k]);
-        }
-        formdata.append("file", fileBlob);
-        const fetchresponse = await fetch(uploadresult.upload_url,
-          {
-            method: 'POST',
-            body: formdata
-          }
-        );
-        if (!fetchresponse.ok) {
-          throw new Error(`Received ${fetchresponse.status}: ${fetchresponse.statusText} from ${uploadresult.upload_url}\n${await fetchresponse.text()}`);
-        }
-        const fetchresponsedata = await fetchresponse.json();
-        file_id = fetchresponsedata.id;
+        continue;
       }
 
-      { // Post comment
-        const putbody = {
-          comment: {
-            'text_comment': COMMENT,
-            'file_ids': [file_id],
-            'attempt': submission.attempt
-          },
-          submission: {
-            'posted_grade': Number.parseFloat(score)
-          }
-        };
-        
-        const url = `https://canvas.qut.edu.au/api/v1/courses/${COURSE_ID}/assignments/${ASSIGNMENT_ID}/submissions/${user_id}`;
-        const res = await fetch(url, {method: "PUT", body: JSON.stringify(putbody), ...OPTIONS});
-        if (!res.ok) {
-          throw new Error(`Received ${res.status}: ${res.statusText} from ${url}\n${await res.text()}`);
-        }
+      for (const item of comment.attachments ?? []) {
+        await checkedFetch(`https://canvas.qut.edu.au/api/v1/files/${item.id}`, { method: 'DELETE', ...OPTIONS });
       }
+      await checkedFetch(`${submissionUrl}/comments/${comment.id}`, { method: 'DELETE', ...OPTIONS });
     }
+
+    if (canReuse) return;
+
+    if (!ATTACH_PDFS) {
+      await checkedFetch(submissionUrl, {
+        method: 'PUT',
+        body: JSON.stringify({ submission: { posted_grade: Number.parseFloat(score) } }),
+        ...OPTIONS
+      });
+      return;
+    }
+
+    const fileBlob = new Blob([await fs.readFile(attachment)]);
+    const uploadRequestUrl = `${submissionUrl}/comments/files`;
+    const uploadRequest = await checkedFetch(uploadRequestUrl, {
+      method: 'POST', body: JSON.stringify({ name: filename, size: fileBlob.size }), ...OPTIONS
+    });
+    const upload = await uploadRequest.json();
+    const formData = new FormData();
+    for (const [key, value] of Object.entries(upload.upload_params)) formData.append(key, value);
+    formData.append('file', fileBlob);
+    const uploadedFileResponse = await checkedFetch(upload.upload_url, { method: 'POST', body: formData });
+    const uploadedFile = await uploadedFileResponse.json();
+
+    const comment = { file_ids: [uploadedFile.id], attempt: submission.attempt };
+    if (INCLUDE_COMMENT) comment.text_comment = COMMENT;
+    await checkedFetch(submissionUrl, {
+      method: 'PUT',
+      body: JSON.stringify({ comment, submission: { posted_grade: Number.parseFloat(score) } }),
+      ...OPTIONS
+    });
   };
 
   process.stdout.write(`Uploading grades and exam scans\n[${' '.repeat(PROGRESS_BAR_LEN)}]\r[`);
-  let students_graded = 0, progress = 0;
-  for (const g of GRADES) {
-    await grade(...g);
-    students_graded++;
-    const new_progress = Math.floor(students_graded * PROGRESS_BAR_LEN / GRADES.length);
-    while (new_progress > progress) {
+  let studentsGraded = 0;
+  let progress = 0;
+  for (const row of GRADES) {
+    await grade(...row);
+    studentsGraded++;
+    const newProgress = Math.floor(studentsGraded * PROGRESS_BAR_LEN / GRADES.length);
+    while (newProgress > progress) {
       process.stdout.write('.');
       progress++;
     }
   }
-  process.stdout.write("]\n");
+  process.stdout.write(']\n');
 })();
