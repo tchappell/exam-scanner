@@ -210,24 +210,26 @@ export function App() {
             actions={<span class="section-count">{keyedQuestionCount} keyed</span>}
           >
             <div class="setup-layout">
-              <div class="setup-column">
-                <h3>PDF</h3>
-                <PdfSetupPanel
-                  pdf={pdf}
-                  pdfName={pdfName}
-                  previewURI={previewURI}
-                  currentPage={pdfPage}
-                  currentlyScanning={currentlyScanning}
-                  onSelect={pdfSelected}
-                  onRemove={pdfDeselected}
-                  onPrevious={prevPage}
-                  onNext={nextPage}
-                />
-              </div>
-              <div class="setup-column setup-layout__options">
-                <h3>Scan configuration</h3>
-                <ScannerConfig config={cfg} setConfig={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
-                <ComparisonConfig comparison={comparison} setComparison={setComparison} scannerConfig={cfg} currentlyScanning={currentlyScanning} />
+              <div class="setup-column setup-column--source">
+                <div class="setup-stack-section">
+                  <h3>PDF</h3>
+                  <PdfSetupPanel
+                    pdf={pdf}
+                    pdfName={pdfName}
+                    previewURI={previewURI}
+                    currentPage={pdfPage}
+                    currentlyScanning={currentlyScanning}
+                    onSelect={pdfSelected}
+                    onRemove={pdfDeselected}
+                    onPrevious={prevPage}
+                    onNext={nextPage}
+                  />
+                </div>
+                <div class="setup-stack-section setup-layout__options">
+                  <h3>Scan configuration</h3>
+                  <ScannerConfig config={cfg} setConfig={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
+                  <ComparisonConfig comparison={comparison} setComparison={setComparison} scannerConfig={cfg} currentlyScanning={currentlyScanning} />
+                </div>
               </div>
               <div class="setup-column setup-column--answer" id="answer-key">
                 <h3>Answer key</h3>

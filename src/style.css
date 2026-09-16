@@ -587,6 +587,10 @@ select {
 .answer-key-row.has-marks { grid-template-columns: 28px 48px 1fr; }
 .answer-key-row.has-multi.has-marks { grid-template-columns: 28px 48px minmax(0, auto) 1fr; }
 
+.answer-key-grid.has-multi.has-marks {
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+}
+
 .answer-key-row + .answer-key-row {
   border-top: 1px solid #e8ecf2;
 }
@@ -599,7 +603,12 @@ select {
 }
 
 .answer-key-row__multi {
+  display: grid;
+  width: 42px;
+  min-width: 0;
+  box-sizing: border-box;
   cursor: pointer;
+  place-items: center;
   padding: 4px 7px;
   border: 1px solid #ccd5e3;
   border-radius: 6px;
@@ -1500,8 +1509,8 @@ select {
 }
 
 .setup-layout {
-  grid-template-columns: minmax(250px, 0.72fr) minmax(340px, 0.95fr) minmax(420px, 1.2fr);
-  gap: 18px;
+  grid-template-columns: minmax(360px, 0.68fr) minmax(600px, 1.32fr);
+  gap: 24px;
   align-items: start;
 }
 
@@ -1509,13 +1518,25 @@ select {
   min-width: 0;
 }
 
-.setup-column > h3 {
+.setup-column > h3,
+.setup-stack-section > h3 {
   margin: 0 0 10px;
   color: #44506a;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.07em;
   text-transform: uppercase;
+}
+
+.setup-column--source {
+  display: grid;
+  align-content: start;
+  gap: 22px;
+}
+
+.setup-column--answer .answer-key-grid:not(.is-two-sided) {
+  max-height: none;
+  overflow: visible;
 }
 
 .setup-column__description {
@@ -1848,15 +1869,16 @@ button.review-item__image { cursor: zoom-in; }
 
 @media (max-width: 1280px) {
   .setup-layout {
-    grid-template-columns: minmax(280px, 0.8fr) minmax(420px, 1.2fr);
+    grid-template-columns: minmax(340px, 0.85fr) minmax(480px, 1.15fr);
   }
-  .setup-column--answer { grid-column: 1 / -1; }
   .setup-column--answer .answer-key-grid { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+  .setup-column--answer .answer-key-grid.has-multi.has-marks {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
 }
 
 @media (max-width: 980px) {
   .setup-layout { grid-template-columns: 1fr; }
-  .setup-column--answer { grid-column: 1; }
 }
 
 @media (max-width: 700px) {

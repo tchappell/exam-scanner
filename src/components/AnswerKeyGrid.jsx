@@ -42,7 +42,7 @@ export function AnswerKeyGrid({ cfg, setCfg, currentlyScanning, manualMarks = fa
   };
 
   return (
-    <div class="answer-key-grid">
+    <div class={`answer-key-grid${cfg.twoSided ? ' is-two-sided' : ''}${cfg.hasMultiAnswer ? ' has-multi' : ''}${manualMarks ? ' has-marks' : ''}`}>
       {blocks.map((questions, block) => (
         <fieldset class="answer-key-block" key={block}>
           <legend>Questions {questions[0] + 1}–{questions.at(-1) + 1}</legend>

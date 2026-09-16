@@ -46,11 +46,32 @@ test('lays out setup columns side by side when the viewport has room', async ({ 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
 
-  const topPositions = await page.locator('.setup-column > h3').evaluateAll(headings =>
-    headings.map(heading => heading.getBoundingClientRect().top)
+  const topPositions = await page.locator('.setup-layout > .setup-column').evaluateAll(columns =>
+    columns.map(column => column.getBoundingClientRect().top)
   );
-  expect(topPositions).toHaveLength(3);
+  expect(topPositions).toHaveLength(2);
   expect(Math.max(...topPositions) - Math.min(...topPositions)).toBeLessThan(12);
+});
+
+test('keeps Multi inside its control when individual marks are visible', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Contains multi-answer questions?').check();
+  await page.getByLabel('Edit individual questions').check();
+
+  const geometry = await page.locator('label[for="ak_1_multi"]').evaluate(label => {
+    const labelBox = label.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    const textBox = range.getBoundingClientRect();
+    return {
+      labelLeft: labelBox.left,
+      labelRight: labelBox.right,
+      textLeft: textBox.left,
+      textRight: textBox.right
+    };
+  });
+  expect(geometry.textLeft).toBeGreaterThanOrEqual(geometry.labelLeft);
+  expect(geometry.textRight).toBeLessThanOrEqual(geometry.labelRight);
 });
 
 test('configures mark ranges and individual zero-mark overrides', async ({ page }) => {
