@@ -67,7 +67,7 @@ pub struct CanvasUploadRequest {
     course_id: String,
     assignment_id: String,
     user_id: String,
-    score: f64,
+    score: Option<f64>,
     hash: String,
     pdf_bytes: Option<Vec<u8>>,
     include_comment: bool,
@@ -337,6 +337,20 @@ fn normalise_comment(value: &str) -> String {
         .to_owned()
 }
 
+fn submission_update_body(
+    score: Option<f64>,
+    comment: Option<serde_json::Map<String, Value>>,
+) -> Value {
+    let mut body = serde_json::Map::new();
+    if let Some(score) = score {
+        body.insert("submission".to_owned(), json!({ "posted_grade": score }));
+    }
+    if let Some(comment) = comment {
+        body.insert("comment".to_owned(), Value::Object(comment));
+    }
+    Value::Object(body)
+}
+
 async fn send_canvas_json<T: DeserializeOwned>(
     session: &CanvasSession,
     method: Method,
@@ -568,13 +582,16 @@ pub async fn canvas_upload_result(
     validate_canvas_id(&request.course_id, "course ID")?;
     validate_canvas_id(&request.assignment_id, "assignment ID")?;
     validate_canvas_id(&request.user_id, "user ID")?;
-    if !request.score.is_finite() {
+    if request.score.is_none() && request.pdf_bytes.is_none() {
+        return Err("Choose a grade, an annotated PDF, or both.".to_owned());
+    }
+    if request.score.is_some_and(|score| !score.is_finite()) {
         return Err("The grade is not a finite number.".to_owned());
     }
-    if request.hash.len() != 8 || !request.hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err("The generated PDF hash is invalid.".to_owned());
-    }
     if let Some(pdf) = &request.pdf_bytes {
+        if request.hash.len() != 8 || !request.hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("The generated PDF hash is invalid.".to_owned());
+        }
         if pdf.len() > MAX_PDF_BYTES {
             return Err("The annotated PDF is larger than 50 MB.".to_owned());
         }
@@ -588,6 +605,21 @@ pub async fn canvas_upload_result(
         "/api/v1/courses/{}/assignments/{}/submissions/{}",
         request.course_id, request.assignment_id, request.user_id
     );
+    let update_url = api_url(&session, &submission_path)?;
+    if request.pdf_bytes.is_none() {
+        send_canvas_without_body(
+            &session,
+            Method::PUT,
+            update_url,
+            Some(submission_update_body(request.score, None)),
+        )
+        .await?;
+        return Ok(CanvasUploadResult {
+            status: "updated",
+            attachment_filename: None,
+        });
+    }
+
     let mut submission_url = api_url(&session, &submission_path)?;
     submission_url
         .query_pairs_mut()
@@ -619,11 +651,11 @@ pub async fn canvas_upload_result(
             .attachments
             .first()
             .and_then(|item| item.filename.as_deref());
-        let reusable = request.pdf_bytes.is_some()
-            && submission
+        let reusable = request.score.map_or(true, |requested_score| {
+            submission
                 .score
-                .is_some_and(|score| (score - request.score).abs() < 0.000_001)
-            && existing_filename == Some(filename.as_str())
+                .is_some_and(|score| (score - requested_score).abs() < 0.000_001)
+        }) && existing_filename == Some(filename.as_str())
             && normalise_comment(comment.comment.as_deref().unwrap_or_default())
                 == normalise_comment(expected_comment);
         if reusable {
@@ -649,20 +681,9 @@ pub async fn canvas_upload_result(
         });
     }
 
-    let update_url = api_url(&session, &submission_path)?;
-    let Some(pdf_bytes) = request.pdf_bytes else {
-        send_canvas_without_body(
-            &session,
-            Method::PUT,
-            update_url,
-            Some(json!({ "submission": { "posted_grade": request.score } })),
-        )
-        .await?;
-        return Ok(CanvasUploadResult {
-            status: "updated",
-            attachment_filename: None,
-        });
-    };
+    let pdf_bytes = request
+        .pdf_bytes
+        .expect("PDF presence was validated before reading the submission");
 
     let upload_url = api_url(&session, &format!("{submission_path}/comments/files"))?;
     let instructions: UploadInstructions = send_canvas_json(
@@ -718,10 +739,7 @@ pub async fn canvas_upload_result(
         &session,
         Method::PUT,
         update_url,
-        Some(json!({
-            "submission": { "posted_grade": request.score },
-            "comment": Value::Object(comment)
-        })),
+        Some(submission_update_body(request.score, Some(comment))),
     )
     .await?;
 
@@ -733,8 +751,9 @@ pub async fn canvas_upload_result(
 
 #[cfg(test)]
 mod tests {
-    use super::{next_link, normalise_comment, validate_base_url};
+    use super::{next_link, normalise_comment, submission_update_body, validate_base_url};
     use reqwest::header::{HeaderMap, HeaderValue, LINK};
+    use serde_json::{json, Map, Value};
 
     #[test]
     fn canvas_address_is_normalised_to_the_site_root() {
@@ -767,6 +786,42 @@ mod tests {
         assert_eq!(
             normalise_comment("<p>Marked sheet attached.<br>Contact us &amp; report errors.</p>"),
             "Marked sheet attached.\nContact us & report errors."
+        );
+    }
+
+    #[test]
+    fn grade_only_update_body_contains_no_comment() {
+        assert_eq!(
+            submission_update_body(Some(9.0), None),
+            json!({ "submission": { "posted_grade": 9.0 } })
+        );
+    }
+
+    #[test]
+    fn pdf_only_update_body_contains_no_grade() {
+        let mut comment = Map::new();
+        comment.insert("file_ids".to_owned(), json!([42]));
+
+        assert_eq!(
+            submission_update_body(None, Some(comment)),
+            json!({ "comment": { "file_ids": [42] } })
+        );
+    }
+
+    #[test]
+    fn combined_update_body_contains_grade_and_comment() {
+        let mut comment = Map::new();
+        comment.insert(
+            "text_comment".to_owned(),
+            Value::String("Marked sheet attached.".to_owned()),
+        );
+
+        assert_eq!(
+            submission_update_body(Some(9.0), Some(comment)),
+            json!({
+                "submission": { "posted_grade": 9.0 },
+                "comment": { "text_comment": "Marked sheet attached." }
+            })
         );
     }
 }

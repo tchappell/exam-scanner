@@ -6,6 +6,7 @@ import { examResultFilename, hashBlob } from '../services/examArtifacts.mjs';
 import { createCSV, loadCSV } from '../util/csv.mjs';
 import { addBlobToZip, createZip, downloadFile, downloadZip } from '../util/downloads.mjs';
 import { CanvasRosterMatch } from './CanvasRosterMatch.jsx';
+import { CanvasRubricTransfer } from './CanvasRubricTransfer.jsx';
 import { DirectCanvasTransfer } from './DirectCanvasTransfer.jsx';
 import uploadMarks from '../uploadMarks.txt?raw';
 
@@ -36,37 +37,44 @@ const DEFAULT_COMMENT = 'Your marked test answer sheet is attached. Please conta
 function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, matches, createAnnotatedPdf }) {
   const [apiKey, setApiKey] = useState('');
   const [courseCode, setCourseCode] = useState('');
-  const [attachPdf, setAttachPdf] = useState(true);
+  const [exportMode, setExportMode] = useState('grades-and-pdfs');
   const [includeComment, setIncludeComment] = useState(true);
   const [comment, setComment] = useState(DEFAULT_COMMENT);
+  const updateGrades = exportMode !== 'pdfs-only';
+  const attachPdf = exportMode !== 'grades-only';
   const assignmentCodePart = assignment.fullName.split('(').at(-1);
   const assignmentCode = Number.parseInt(assignmentCodePart.slice(0, -1), 10);
 
   const exportZip = async () => {
     const { PDFDocument } = await import('pdf-lib');
     const filenames = new Set();
-    const zip = await createZip('ExamPDFs.zip');
-    const sourceDocument = await PDFDocument.load(await pdf.getData());
+    const zip = await createZip('CanvasUpload.zip');
+    const sourceDocument = attachPdf ? await PDFDocument.load(await pdf.getData()) : null;
     const grades = [];
 
     for (let index = 0; index < examResults.length; index++) {
       const canvasIndex = matches.get(index);
       if (typeof canvasIndex === 'undefined') continue;
       const result = examResults[index];
-      if (!('homographies' in result)) continue;
+      if (attachPdf && !('homographies' in result)) continue;
 
-      const baseName = examResultFilename(result);
-      let filename = baseName;
-      for (let suffix = 2; filenames.has(filename); suffix++) filename = `${baseName}-${suffix}`;
-      filenames.add(filename);
-      filename += '.pdf';
+      let hash = '00000000';
+      let filename = null;
+      if (attachPdf) {
+        const baseName = examResultFilename(result);
+        filename = baseName;
+        for (let suffix = 2; filenames.has(filename); suffix++) filename = `${baseName}-${suffix}`;
+        filenames.add(filename);
+        filename += '.pdf';
 
-      const blob = await createAnnotatedPdf(cfg, result, sourceDocument);
-      addBlobToZip(zip, filename, blob);
+        const blob = await createAnnotatedPdf(cfg, result, sourceDocument);
+        hash = (await hashBlob(blob)).slice(0, 8);
+        addBlobToZip(zip, filename, blob);
+      }
       grades.push([
         canvasCSV[canvasIndex][1],
         `${calculateScore(result.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking)}`,
-        (await hashBlob(blob)).slice(0, 8),
+        hash,
         filename
       ]);
     }
@@ -75,7 +83,8 @@ function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, mat
       + `const COURSE_ID = ${JSON.stringify(courseCode)};\n`
       + `const ASSIGNMENT_ID = ${JSON.stringify(assignmentCode)};\n`
       + `const API_KEY = ${JSON.stringify(apiKey)};\n\n`;
-    const scriptOptions = `const ATTACH_PDFS = ${JSON.stringify(attachPdf)};\n`
+    const scriptOptions = `const UPDATE_GRADES = ${JSON.stringify(updateGrades)};\n`
+      + `const ATTACH_PDFS = ${JSON.stringify(attachPdf)};\n`
       + `const INCLUDE_COMMENT = ${JSON.stringify(includeComment)};\n`
       + `const COMMENT = ${JSON.stringify(comment)};\n\n`;
     addBlobToZip(zip, 'UploadMarks.js', new Blob([scriptHeading, scriptOptions, uploadMarks]));
@@ -84,8 +93,8 @@ function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, mat
 
   return (
     <div class="canvas-pdf-export">
-      <h4>Annotated student PDFs</h4>
-      <p>Create a ZIP containing matched student PDFs and the optional Canvas upload script.</p>
+      <h4>Canvas upload ZIP</h4>
+      <p>Create an UploadMarks.js bundle that updates grades, attaches annotated exam PDFs, or does both.</p>
       <div class="canvas-pdf-export__fields">
         <div class="field-group">
           <label htmlFor="apiKey">Canvas API key</label>
@@ -95,18 +104,25 @@ function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, mat
           <label htmlFor="courseCode">Canvas course code</label>
           <input type="number" id="courseCode" value={courseCode} onInput={event => setCourseCode(event.target.value)} />
         </div>
+        <div class="field-group">
+          <label htmlFor="canvasZipContents">Upload ZIP contents</label>
+          <select id="canvasZipContents" value={exportMode} onChange={event => setExportMode(event.target.value)}>
+            <option value="grades-and-pdfs">Grades and exam PDFs</option>
+            <option value="pdfs-only">Exam PDFs only</option>
+            <option value="grades-only">Grades only</option>
+          </select>
+        </div>
       </div>
       <div class="canvas-upload-options">
-        <label class="compact-check"><input type="checkbox" checked={attachPdf}
-          onChange={event => setAttachPdf(event.target.checked)} />Attach marked PDF</label>
         <label class="compact-check"><input type="checkbox" checked={attachPdf && includeComment} disabled={!attachPdf}
           onChange={event => setIncludeComment(event.target.checked)} />Include message</label>
-        {includeComment ? <div class="field-group canvas-comment-field">
+        {attachPdf && includeComment ? <div class="field-group canvas-comment-field">
           <label htmlFor="canvasComment">Message to student</label>
           <textarea id="canvasComment" rows="3" value={comment} onInput={event => setComment(event.target.value)} />
         </div> : null}
       </div>
-      {!attachPdf ? <p class="form-text">The upload script will update grades only.</p> : null}
+      {!updateGrades ? <p class="form-text">The upload script will attach exam PDFs without changing assignment grades.</p> : null}
+      {!attachPdf ? <p class="form-text">The upload script will update grades without creating PDF files.</p> : null}
       <p class="form-text">The API key is written only into the downloaded script; this web app never stores it.</p>
       <button type="button" class="btn btn-outline-primary" onClick={exportZip}>Export upload ZIP</button>
     </div>
@@ -165,7 +181,7 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
         <button type="button" role="tab" aria-selected={mode === 'direct'} class={mode === 'direct' ? 'is-active' : ''}
           onClick={() => setMode('direct')}>Direct Canvas</button>
         <button type="button" role="tab" aria-selected={mode === 'csv'} class={mode === 'csv' ? 'is-active' : ''}
-          onClick={() => setMode('csv')}>Gradebook CSV and upload ZIP</button>
+          onClick={() => setMode('csv')}>Gradebook and rubric CSVs</button>
       </div> : null}
 
       {mode === 'direct' ? <DirectCanvasTransfer examResults={examResults} setExamResults={setExamResults}
@@ -178,6 +194,8 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
         </div>
       ) : <>
         <CanvasRosterMatch examResults={examResults} setExamResults={setExamResults} canvasCSV={canvasCSV} matchResult={matchResult} />
+        <CanvasRubricTransfer examResults={examResults} cfg={cfg} gradebookCsv={canvasCSV}
+          gradebookMatches={examResultMatches} />
       </>}
 
       <div class="canvas-assignment">

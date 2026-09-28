@@ -143,6 +143,36 @@ test('desktop runtime exposes direct Canvas without removing the CSV workflow', 
   await expect(page.getByLabel('Access token')).toBeVisible();
   await expect(page.getByText('operating system credential store')).toBeVisible();
 
-  await page.getByRole('tab', { name: 'Gradebook CSV and upload ZIP' }).click();
+  await page.getByRole('tab', { name: 'Gradebook and rubric CSVs' }).click();
   await expect(page.getByLabel('Submit Canvas Gradebook CSV')).toBeVisible();
+});
+
+test('loads Canvas Enhanced Rubrics assessment criteria alongside a Gradebook', async ({ page }) => {
+  await page.goto('/');
+
+  await page.getByLabel('Submit Canvas Gradebook CSV').setInputFiles({
+    name: 'gradebook.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from([
+      'Student,ID,SIS User ID,SIS Login ID,Integration ID,Section,Exam (42)',
+      ',,,,,,Manual Posting',
+      '    Points Possible,,,,,,40.00',
+      '"Student, Test",204272,,,12345678,Default Section,'
+    ].join('\n'))
+  });
+
+  await expect(page.getByText('Enhanced Rubrics assessment CSV')).toBeVisible();
+  await page.getByLabel('Submit Canvas rubric-assessment CSV').setInputFiles({
+    name: 'rubric.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from([
+      'Student Id,Student Name,Section A - Rating,Section A - Points,Section A - Comments,Section B - Points,Section B - Comments',
+      '204272,"Student, Test",No details,,,20,pretty good'
+    ].join('\n'))
+  });
+
+  const criterion = page.getByLabel('MCQ rubric criterion');
+  await expect(criterion).toContainText('Section A');
+  await expect(criterion).toContainText('Section B');
+  await expect(page.getByText('2 scored criteria found')).toBeVisible();
 });

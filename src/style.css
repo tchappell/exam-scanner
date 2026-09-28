@@ -1367,7 +1367,8 @@ select {
 }
 
 .canvas-matches h4,
-.canvas-pdf-export h4 {
+.canvas-pdf-export h4,
+.canvas-rubric-export h4 {
   margin: 0 0 8px;
   font-size: 0.8rem;
   font-weight: 800;
@@ -1435,9 +1436,65 @@ select {
   border-radius: 12px;
 }
 
+.canvas-rubric-export {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.canvas-rubric-export__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.canvas-rubric-export__header p {
+  max-width: 760px;
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.canvas-rubric-export__badge {
+  display: inline-block;
+  margin-bottom: 5px;
+  color: var(--brand);
+  font-size: 0.61rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.canvas-rubric-export__file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 0.76rem;
+}
+
+.canvas-rubric-export__file span {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.canvas-rubric-export__controls {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+
+.canvas-rubric-export__controls .field-group {
+  min-width: 260px;
+  flex: 1;
+}
+
 .canvas-pdf-export__fields {
   display: grid;
-  grid-template-columns: 1.5fr 0.5fr;
+  grid-template-columns: 1.25fr 0.55fr 0.9fr;
   gap: 10px;
   margin: 14px 0;
 }
@@ -1608,6 +1665,16 @@ select {
   .canvas-assignment {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .canvas-rubric-export__header,
+  .canvas-rubric-export__controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .canvas-rubric-export__controls .field-group {
+    min-width: 0;
   }
 
   .results-toolbar,
@@ -2355,6 +2422,7 @@ body {
 .canvas-direct-connect,
 .canvas-direct-upload,
 .canvas-assignment,
+.canvas-rubric-export,
 .canvas-pdf-export,
 .canvas-summary > div,
 .analysis-summary > div,

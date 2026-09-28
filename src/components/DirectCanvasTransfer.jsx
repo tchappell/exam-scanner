@@ -37,7 +37,6 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
   const [manualMatches, setManualMatches] = useState(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [attachPdf, setAttachPdf] = useState(true);
   const [includeComment, setIncludeComment] = useState(true);
   const [comment, setComment] = useState(DEFAULT_COMMENT);
   const [upload, setUpload] = useState(null);
@@ -66,10 +65,6 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
       .catch(() => {});
     return () => { active = false; };
   }, []);
-
-  useEffect(() => {
-    if (!canAttachAll && attachPdf) setAttachPdf(false);
-  }, [canAttachAll, attachPdf]);
 
   const refreshSavedToken = async () => {
     try {
@@ -153,15 +148,19 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
     }
   };
 
-  const uploadGrades = async () => {
+  const uploadResults = async ({ updateGrades, includePdfs }) => {
     if (!selectedCourse || !selectedAssignment) return;
     const matched = [...matchResult.examResultMatches];
     if (matched.length === 0) return;
-    const includePdfs = attachPdf && canAttachAll;
+    if (includePdfs && !canAttachAll) return;
+    const action = updateGrades
+      ? (includePdfs ? 'grades and exam PDFs' : 'grades')
+      : 'exam PDFs';
     const confirmation = window.confirm(
-      `Upload ${matched.length} grade${matched.length === 1 ? '' : 's'} to “${selectedAssignment.name}” in “${selectedCourse.courseCode}”?`
-      + (includePdfs ? '\n\nAn annotated answer-sheet PDF will also be attached to each submission.' : '\n\nNo PDFs will be attached.')
-      + '\n\nAny earlier PDF and comment managed by Exam Scanner for these submissions will be replaced if the result has changed.'
+      `Upload ${action} for ${matched.length} student${matched.length === 1 ? '' : 's'} to "${selectedAssignment.name}" in "${selectedCourse.courseCode}"?`
+      + (includePdfs
+        ? '\n\nAny earlier PDF and comment managed by Exam Scanner for these submissions will be replaced if the result has changed.'
+        : '\n\nExisting exam PDFs and comments will be left unchanged.')
     );
     if (!confirmation) return;
 
@@ -201,7 +200,9 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
           courseId,
           assignmentId,
           userId: student[1],
-          score: calculateScore(result.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking),
+          score: updateGrades
+            ? calculateScore(result.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking)
+            : null,
           hash,
           pdfBytes,
           includeComment: includePdfs && includeComment,
@@ -306,11 +307,9 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
         <span>{matchResult.examResultMatches.size} matched grades</span>
       </div>
       <div class="canvas-upload-options">
-        <label class="compact-check"><input type="checkbox" checked={attachPdf} disabled={!canAttachAll || upload?.running}
-          onChange={event => setAttachPdf(event.target.checked)} />Attach marked PDF</label>
-        <label class="compact-check"><input type="checkbox" checked={attachPdf && includeComment}
-          disabled={!attachPdf || upload?.running} onChange={event => setIncludeComment(event.target.checked)} />Include message</label>
-        {attachPdf && includeComment ? <div class="field-group canvas-comment-field">
+        <label class="compact-check"><input type="checkbox" checked={includeComment}
+          disabled={!canAttachAll || upload?.running} onChange={event => setIncludeComment(event.target.checked)} />Include message with PDF uploads</label>
+        {canAttachAll && includeComment ? <div class="field-group canvas-comment-field">
           <label htmlFor="directCanvasComment">Message to student</label>
           <textarea id="directCanvasComment" rows="3" value={comment} disabled={upload?.running}
             onInput={event => setComment(event.target.value)} />
@@ -318,8 +317,14 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
       </div>
       {!canAttachAll ? <p class="form-text">Marked PDFs require the source PDF and scan registration data. Grade-only upload remains available.</p> : null}
       <div class="canvas-direct-upload__actions">
-        <button type="button" class="btn btn-primary" disabled={upload?.running || matchResult.examResultMatches.size === 0}
-          onClick={uploadGrades}>Upload to Canvas</button>
+        <button type="button" class="btn btn-outline-primary" disabled={upload?.running || matchResult.examResultMatches.size === 0}
+          onClick={() => uploadResults({ updateGrades: true, includePdfs: false })}>Upload grades</button>
+        <button type="button" class="btn btn-outline-primary"
+          disabled={upload?.running || matchResult.examResultMatches.size === 0 || !canAttachAll}
+          onClick={() => uploadResults({ updateGrades: false, includePdfs: true })}>Upload exam PDFs</button>
+        <button type="button" class="btn btn-primary"
+          disabled={upload?.running || matchResult.examResultMatches.size === 0 || !canAttachAll}
+          onClick={() => uploadResults({ updateGrades: true, includePdfs: true })}>Upload grades and PDFs</button>
         {upload?.running ? <button type="button" class="btn btn-outline-secondary"
           onClick={() => { cancelUpload.current = true; }}>Stop after current student</button> : null}
       </div>

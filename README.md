@@ -76,8 +76,8 @@ The direct workflow connects to `https://canvas.qut.edu.au` by default, then:
 2. loads the selected course's assignments and active student roster;
 3. matches roster integration IDs to scanned student numbers, with manual
    name-based pairing for exceptions; and
-4. uploads grades, with optional annotated answer-sheet PDFs and a configurable
-   student comment.
+4. uploads grades, annotated answer-sheet PDFs, or both, with a configurable
+   student comment for PDF uploads.
 
 The token is held by the native Rust process rather than browser storage. If
 **Remember token** is selected, it is saved in the operating system credential
@@ -92,6 +92,30 @@ Canvas API access depends on the token holder having permission to view the
 course roster and manage grades. Because automated tests do not have access to
 a QUT Canvas account, the native request/parsing code is tested locally but the
 first end-to-end API check must be performed with a suitable test assignment.
+
+### Enhanced Rubrics CSV transfer
+
+Enhanced Rubrics assessment scores can be transferred without a Canvas API
+token. Export both the ordinary Canvas Gradebook CSV and the rubric-assessment
+CSV for the assignment, then load the Gradebook first. Exam Scanner uses the
+Gradebook to match each scanned QUT student number (`Integration ID`) to the
+internal Canvas student ID used by the rubric file.
+
+After loading the rubric-assessment CSV, choose the rubric criterion containing
+the MCQ mark and export the completed file. Exam Scanner changes only that
+criterion's `- Points` column. Ratings, comments, written-response criteria,
+unknown columns, and students without matched scans are preserved. Canvas
+recalculates Scale ratings from the imported points.
+
+A Scale criterion with ranges enabled is recommended, although Written Feedback
+criteria are also supported. Configure the selected criterion's maximum to equal
+the scanner's exam total. Neither Canvas CSV contains the criterion maximum, so
+Exam Scanner cannot verify it. Download a fresh rubric-assessment CSV before
+transferring scores so that existing written marks and feedback are retained.
+
+The upload ZIP can independently update assignment grades, attach annotated exam
+PDFs, or do both. Choose PDF-only mode when rubric scores will be imported through
+Canvas and the API script is needed only for attaching answer sheets.
 
 ## GitHub Pages
 
@@ -158,8 +182,9 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
   and annotated-PDF actions; `ReviewPanels.jsx` owns comparison and uncertain-mark
   review queues.
 - `src/components/ResultsFileExchange.jsx` owns CSV/JSON import and export;
-  `CanvasTransfer.jsx`, `DirectCanvasTransfer.jsx`, and `CanvasRosterMatch.jsx`
-  own the two Canvas workflows and their shared roster matching; and
+  `CanvasTransfer.jsx`, `CanvasRubricTransfer.jsx`, `DirectCanvasTransfer.jsx`,
+  and `CanvasRosterMatch.jsx` own the Canvas CSV, rubric, direct-upload, and
+  shared roster-matching workflows; and
   `ExamAnalysis.jsx` owns item statistics.
 - `src/scannerWorker.js` contains the OpenCV/TensorFlow recognition pipeline.
 - `src/scannerClient.mjs` owns the request/response boundary to that worker.

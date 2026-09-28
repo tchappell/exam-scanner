@@ -43,31 +43,34 @@ function normaliseComment(value) {
     const expectedComment = INCLUDE_COMMENT ? COMMENT : '';
     let canReuse = false;
 
-    for (const comment of managedComments) {
-      const existingFilename = comment.attachments?.[0]?.filename;
-      const reusable = ATTACH_PDFS
-        && `${submission.grade}` === `${score}`
-        && existingFilename === filename
-        && normaliseComment(comment.comment) === normaliseComment(expectedComment);
-      if (reusable) {
-        canReuse = true;
-        continue;
-      }
+    if (ATTACH_PDFS) {
+      for (const comment of managedComments) {
+        const existingFilename = comment.attachments?.[0]?.filename;
+        const reusable = (!UPDATE_GRADES || `${submission.grade}` === `${score}`)
+          && existingFilename === filename
+          && normaliseComment(comment.comment) === normaliseComment(expectedComment);
+        if (reusable) {
+          canReuse = true;
+          continue;
+        }
 
-      for (const item of comment.attachments ?? []) {
-        await checkedFetch(`https://canvas.qut.edu.au/api/v1/files/${item.id}`, { method: 'DELETE', ...OPTIONS });
+        for (const item of comment.attachments ?? []) {
+          await checkedFetch(`https://canvas.qut.edu.au/api/v1/files/${item.id}`, { method: 'DELETE', ...OPTIONS });
+        }
+        await checkedFetch(`${submissionUrl}/comments/${comment.id}`, { method: 'DELETE', ...OPTIONS });
       }
-      await checkedFetch(`${submissionUrl}/comments/${comment.id}`, { method: 'DELETE', ...OPTIONS });
     }
 
     if (canReuse) return;
 
     if (!ATTACH_PDFS) {
-      await checkedFetch(submissionUrl, {
-        method: 'PUT',
-        body: JSON.stringify({ submission: { posted_grade: Number.parseFloat(score) } }),
-        ...OPTIONS
-      });
+      if (UPDATE_GRADES) {
+        await checkedFetch(submissionUrl, {
+          method: 'PUT',
+          body: JSON.stringify({ submission: { posted_grade: Number.parseFloat(score) } }),
+          ...OPTIONS
+        });
+      }
       return;
     }
 
@@ -85,14 +88,19 @@ function normaliseComment(value) {
 
     const comment = { file_ids: [uploadedFile.id], attempt: submission.attempt };
     if (INCLUDE_COMMENT) comment.text_comment = COMMENT;
+    const update = { comment };
+    if (UPDATE_GRADES) update.submission = { posted_grade: Number.parseFloat(score) };
     await checkedFetch(submissionUrl, {
       method: 'PUT',
-      body: JSON.stringify({ comment, submission: { posted_grade: Number.parseFloat(score) } }),
+      body: JSON.stringify(update),
       ...OPTIONS
     });
   };
 
-  process.stdout.write(`Uploading grades and exam scans\n[${' '.repeat(PROGRESS_BAR_LEN)}]\r[`);
+  const activity = UPDATE_GRADES
+    ? (ATTACH_PDFS ? 'grades and exam scans' : 'grades')
+    : 'exam scans';
+  process.stdout.write(`Uploading ${activity}\n[${' '.repeat(PROGRESS_BAR_LEN)}]\r[`);
   let studentsGraded = 0;
   let progress = 0;
   for (const row of GRADES) {
