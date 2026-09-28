@@ -1,6 +1,6 @@
 [package]
 name = "exam-scanner"
-version = "0.1.0"
+version = "0.1.1"
 description = "Desktop shell for the Exam Scanner web application"
 authors = ["Timothy Chappell <timothy.chappell@qut.edu.au>"]
 edition = "2021"
