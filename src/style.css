@@ -1283,6 +1283,28 @@ select {
   margin-bottom: 18px;
 }
 
+.canvas-grade-target {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.canvas-grade-target .form-text {
+  margin: 5px 0 0;
+}
+
+.canvas-grade-target__warning {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border: 1px solid #c4ad65;
+  border-radius: 3px;
+  color: #51451f;
+  background: linear-gradient(180deg, #fffbea, #f3e9bf);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) inset;
+  font-size: 0.75rem;
+}
+
 .canvas-direct-upload {
   margin-top: 18px;
   padding: 18px;
@@ -2098,7 +2120,8 @@ button.review-item__image { cursor: zoom-in; }
   .request-dialog__footer { align-items: stretch; flex-direction: column; }
   .review-item__image--identity { height: 220px; border-right: 0; }
   .canvas-direct-connect,
-  .canvas-direct-selectors { grid-template-columns: 1fr; }
+  .canvas-direct-selectors,
+  .canvas-grade-target { grid-template-columns: 1fr; }
   .canvas-connection-bar { align-items: stretch; flex-direction: column; }
   .canvas-transfer-tabs { display: flex; }
   .canvas-transfer-tabs button { flex: 1; }

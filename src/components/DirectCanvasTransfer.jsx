@@ -18,6 +18,8 @@ import { CanvasRosterMatch } from './CanvasRosterMatch.jsx';
 const DEFAULT_CANVAS_URL = 'https://canvas.qut.edu.au';
 const DEFAULT_COMMENT = 'Your marked test answer sheet is attached. Please contact the teaching team if you believe any response has been recorded incorrectly.';
 const multiAnswerQuestionsFor = cfg => cfg.hasMultiAnswer ? (cfg.multiAnswerQuestions ?? {}) : {};
+const criterionName = (criterion, index = 0) => criterion?.description?.trim() || `Criterion ${index + 1}`;
+const pointsLabel = value => Number.isFinite(value) ? `${value} point${value === 1 ? '' : 's'}` : 'points not reported';
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : `${error}`;
@@ -33,6 +35,8 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
   const [courseId, setCourseId] = useState('');
   const [assignments, setAssignments] = useState([]);
   const [assignmentId, setAssignmentId] = useState('');
+  const [gradeDestination, setGradeDestination] = useState('assignment');
+  const [rubricCriterionId, setRubricCriterionId] = useState('');
   const [students, setStudents] = useState([]);
   const [manualMatches, setManualMatches] = useState(new Map());
   const [loading, setLoading] = useState(false);
@@ -47,6 +51,19 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
   const matchResult = applyManualCanvasMatches(automaticMatches, manualMatches);
   const selectedCourse = courses.find(course => course.id === courseId) ?? null;
   const selectedAssignment = assignments.find(assignment => assignment.id === assignmentId) ?? null;
+  const rubricCriteria = selectedAssignment?.rubricCriteria ?? [];
+  const selectedCriterion = rubricCriteria.find(criterion => criterion.id === rubricCriterionId) ?? null;
+  const selectedCriterionName = selectedCriterion
+    ? criterionName(selectedCriterion, rubricCriteria.indexOf(selectedCriterion))
+    : null;
+  const scannerMaximum = calculateMaximumScore(cfg.answerKey, cfg.marking);
+  const targetMaximum = gradeDestination === 'rubric'
+    ? selectedCriterion?.pointsPossible ?? null
+    : selectedAssignment?.pointsPossible ?? null;
+  const gradeTargetReady = gradeDestination === 'assignment' || selectedCriterion !== null;
+  const maximumMismatch = Number.isFinite(scannerMaximum)
+    && Number.isFinite(targetMaximum)
+    && Math.abs(scannerMaximum - targetMaximum) > 0.000001;
   const missingIdentifiers = students.filter(student => normaliseStudentNum(
     student.integrationId || student.sisUserId || student.loginId || ''
   ) === null).length;
@@ -91,6 +108,9 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
       setSavedToken(rememberToken);
       setCourseId('');
       setAssignments([]);
+      setAssignmentId('');
+      setGradeDestination('assignment');
+      setRubricCriterionId('');
       setStudents([]);
       setManualMatches(new Map());
     } catch (caught) {
@@ -112,6 +132,8 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
       setStudents([]);
       setManualMatches(new Map());
       setAssignmentId('');
+      setGradeDestination('assignment');
+      setRubricCriterionId('');
       if (forgetToken) {
         setSavedToken(false);
         setRememberToken(false);
@@ -127,6 +149,8 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
     const value = event.target.value;
     setCourseId(value);
     setAssignmentId('');
+    setGradeDestination('assignment');
+    setRubricCriterionId('');
     setAssignments([]);
     setStudents([]);
     setManualMatches(new Map());
@@ -150,14 +174,21 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
 
   const uploadResults = async ({ updateGrades, includePdfs }) => {
     if (!selectedCourse || !selectedAssignment) return;
+    if (updateGrades && !gradeTargetReady) return;
     const matched = [...matchResult.examResultMatches];
     if (matched.length === 0) return;
     if (includePdfs && !canAttachAll) return;
+    const rubricTarget = updateGrades && gradeDestination === 'rubric' ? selectedCriterion : null;
+    const gradeAction = rubricTarget ? 'criterion scores' : 'grades';
     const action = updateGrades
-      ? (includePdfs ? 'grades and exam PDFs' : 'grades')
+      ? (includePdfs ? `${gradeAction} and exam PDFs` : gradeAction)
       : 'exam PDFs';
+    const destination = rubricTarget
+      ? ` rubric criterion "${selectedCriterionName}"`
+      : '';
     const confirmation = window.confirm(
-      `Upload ${action} for ${matched.length} student${matched.length === 1 ? '' : 's'} to "${selectedAssignment.name}" in "${selectedCourse.courseCode}"?`
+      `Upload ${action} for ${matched.length} student${matched.length === 1 ? '' : 's'} to${destination || ` "${selectedAssignment.name}"`} in "${selectedCourse.courseCode}"?`
+      + (rubricTarget ? `\n\nAssignment: ${selectedAssignment.name}` : '')
       + (includePdfs
         ? '\n\nAny earlier PDF and comment managed by Exam Scanner for these submissions will be replaced if the result has changed.'
         : '\n\nExisting exam PDFs and comments will be left unchanged.')
@@ -203,6 +234,7 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
           score: updateGrades
             ? calculateScore(result.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking)
             : null,
+          rubricCriterionId: rubricTarget?.id ?? null,
           hash,
           pdfBytes,
           includeComment: includePdfs && includeComment,
@@ -260,8 +292,8 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
     <div class="canvas-connection-bar">
       <div><strong>Connected as {profile.name}</strong><span>{profile.primaryEmail || baseUrl}</span></div>
       <div>
-        <button type="button" class="btn btn-sm btn-outline-secondary" disabled={loading} onClick={() => disconnect(false)}>Disconnect</button>
-        {savedToken ? <button type="button" class="btn btn-sm btn-outline-danger" disabled={loading}
+        <button type="button" class="btn btn-sm btn-outline-secondary" disabled={loading || upload?.running} onClick={() => disconnect(false)}>Disconnect</button>
+        {savedToken ? <button type="button" class="btn btn-sm btn-outline-danger" disabled={loading || upload?.running}
           onClick={() => disconnect(true)}>Disconnect and forget token</button> : null}
       </div>
     </div>
@@ -270,7 +302,7 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
     <div class="canvas-direct-selectors">
       <div class="field-group">
         <label htmlFor="canvasCourse">Course</label>
-        <select id="canvasCourse" value={courseId} disabled={loading} onChange={selectCourse}>
+        <select id="canvasCourse" value={courseId} disabled={loading || upload?.running} onChange={selectCourse}>
           <option value="">(select a course)</option>
           {courses.map(course => <option key={course.id} value={course.id}>
             {course.courseCode} — {course.name}{course.termName ? ` (${course.termName})` : ''}
@@ -278,10 +310,15 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
         </select>
       </div>
       <div class="field-group">
-        <label htmlFor="canvasDirectAssignment">Assessment item</label>
-        <select id="canvasDirectAssignment" value={assignmentId} disabled={loading || !courseId}
-          onChange={event => { setAssignmentId(event.target.value); setUpload(null); }}>
-          <option value="">(select an assessment item)</option>
+        <label htmlFor="canvasDirectAssignment">Assignment</label>
+        <select id="canvasDirectAssignment" value={assignmentId} disabled={loading || upload?.running || !courseId}
+          onChange={event => {
+            setAssignmentId(event.target.value);
+            setGradeDestination('assignment');
+            setRubricCriterionId('');
+            setUpload(null);
+          }}>
+          <option value="">(select an assignment)</option>
           {assignments.map(assignment => <option key={assignment.id} value={assignment.id}>
             {assignment.name}{assignment.pointsPossible !== null ? ` — ${assignment.pointsPossible} points` : ''}
             {assignment.published ? '' : ' (unpublished)'}
@@ -301,11 +338,52 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
     </> : null}
 
     {selectedAssignment ? <div class="canvas-direct-upload">
-      <div class="canvas-assignment__summary canvas-direct-upload__summary">
-        <span>{selectedAssignment.pointsPossible ?? 'Unknown'} assignment points</span>
-        <span>{calculateMaximumScore(cfg.answerKey, cfg.marking)} scanner points</span>
-        <span>{matchResult.examResultMatches.size} matched grades</span>
+      <div class="canvas-grade-target">
+        <div class="field-group">
+          <label htmlFor="canvasGradeDestination">Grade destination</label>
+          <select id="canvasGradeDestination" value={gradeDestination} disabled={upload?.running}
+            onChange={event => {
+              setGradeDestination(event.target.value);
+              setRubricCriterionId('');
+              setUpload(null);
+            }}>
+            <option value="assignment">Assignment total</option>
+            <option value="rubric" disabled={rubricCriteria.length === 0}>
+              {rubricCriteria.length === 0 ? 'Rubric criterion (none available)' : 'Rubric criterion'}
+            </option>
+          </select>
+        </div>
+        {gradeDestination === 'rubric' ? <div class="field-group">
+          <label htmlFor="canvasRubricCriterion">MCQ rubric criterion</label>
+          <select id="canvasRubricCriterion" value={rubricCriterionId} disabled={upload?.running}
+            onChange={event => { setRubricCriterionId(event.target.value); setUpload(null); }}>
+            <option value="">(select a criterion)</option>
+            {rubricCriteria.map((criterion, index) => <option key={criterion.id} value={criterion.id}>
+              {criterionName(criterion, index)} - {pointsLabel(criterion.pointsPossible)}
+              {criterion.ignoreForScoring ? ' - not counted in total' : ''}
+            </option>)}
+          </select>
+          {selectedAssignment.rubricTitle ? <p class="form-text">Rubric: {selectedAssignment.rubricTitle}</p> : null}
+        </div> : null}
       </div>
+      <div class="canvas-assignment__summary canvas-direct-upload__summary">
+        <span>{gradeDestination === 'rubric'
+          ? (selectedCriterion ? `${pointsLabel(selectedCriterion.pointsPossible)} in selected criterion` : 'Select a rubric criterion')
+          : `${pointsLabel(selectedAssignment.pointsPossible)} in assignment`}</span>
+        <span>{pointsLabel(scannerMaximum)} in scanner</span>
+        <span>{matchResult.examResultMatches.size} matched student{matchResult.examResultMatches.size === 1 ? '' : 's'}</span>
+      </div>
+      {maximumMismatch ? <p class="canvas-grade-target__warning">
+        The scanner is configured for {pointsLabel(scannerMaximum)}, but {gradeDestination === 'rubric'
+          ? `“${selectedCriterionName}”`
+          : 'the assignment total'} is worth {pointsLabel(targetMaximum)}. Scores are not scaled; uploading remains available.
+      </p> : null}
+      {gradeDestination === 'rubric' && selectedCriterion?.ignoreForScoring ? <p class="canvas-grade-target__warning">
+        Canvas reports that this criterion is not counted in the rubric total. Updating it may not change the assignment grade.
+      </p> : null}
+      {gradeDestination === 'rubric' && selectedCriterion && selectedAssignment.useRubricForGrading === false ? <p class="canvas-grade-target__warning">
+        Canvas reports that this rubric is not used for assignment grading. The criterion will be updated, but the assignment grade may not change.
+      </p> : null}
       <div class="canvas-upload-options">
         <label class="compact-check"><input type="checkbox" checked={includeComment}
           disabled={!canAttachAll || upload?.running} onChange={event => setIncludeComment(event.target.checked)} />Include message with PDF uploads</label>
@@ -317,14 +395,19 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
       </div>
       {!canAttachAll ? <p class="form-text">Marked PDFs require the source PDF and scan registration data. Grade-only upload remains available.</p> : null}
       <div class="canvas-direct-upload__actions">
-        <button type="button" class="btn btn-outline-primary" disabled={upload?.running || matchResult.examResultMatches.size === 0}
-          onClick={() => uploadResults({ updateGrades: true, includePdfs: false })}>Upload grades</button>
+        <button type="button" class="btn btn-outline-primary"
+          disabled={upload?.running || matchResult.examResultMatches.size === 0 || !gradeTargetReady}
+          onClick={() => uploadResults({ updateGrades: true, includePdfs: false })}>
+          {gradeDestination === 'rubric' ? 'Upload criterion scores' : 'Upload grades'}
+        </button>
         <button type="button" class="btn btn-outline-primary"
           disabled={upload?.running || matchResult.examResultMatches.size === 0 || !canAttachAll}
           onClick={() => uploadResults({ updateGrades: false, includePdfs: true })}>Upload exam PDFs</button>
         <button type="button" class="btn btn-primary"
-          disabled={upload?.running || matchResult.examResultMatches.size === 0 || !canAttachAll}
-          onClick={() => uploadResults({ updateGrades: true, includePdfs: true })}>Upload grades and PDFs</button>
+          disabled={upload?.running || matchResult.examResultMatches.size === 0 || !canAttachAll || !gradeTargetReady}
+          onClick={() => uploadResults({ updateGrades: true, includePdfs: true })}>
+          {gradeDestination === 'rubric' ? 'Upload criterion scores and PDFs' : 'Upload grades and PDFs'}
+        </button>
         {upload?.running ? <button type="button" class="btn btn-outline-secondary"
           onClick={() => { cancelUpload.current = true; }}>Stop after current student</button> : null}
       </div>

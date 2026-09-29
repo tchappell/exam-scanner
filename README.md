@@ -73,11 +73,19 @@ and those workflows also remain available in the desktop app.
 The direct workflow connects to `https://canvas.qut.edu.au` by default, then:
 
 1. loads the signed-in user's active courses;
-2. loads the selected course's assignments and active student roster;
+2. loads the selected course's assignments, attached rubric criteria, and active
+   student roster;
 3. matches roster integration IDs to scanned student numbers, with manual
    name-based pairing for exceptions; and
-4. uploads grades, annotated answer-sheet PDFs, or both, with a configurable
-   student comment for PDF uploads.
+4. uploads assignment grades or scores for a selected rubric criterion,
+   annotated answer-sheet PDFs, or both, with a configurable student comment
+   for PDF uploads.
+
+When a rubric criterion is selected, scores are sent without scaling. The app
+shows a non-blocking notice if the scanner maximum differs from the criterion
+maximum. Before updating the selected criterion, it reads and preserves the
+student's other rubric scores, ratings, and comments so that written-response
+assessment is not discarded.
 
 The token is held by the native Rust process rather than browser storage. If
 **Remember token** is selected, it is saved in the operating system credential

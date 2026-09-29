@@ -147,6 +147,128 @@ test('desktop runtime exposes direct Canvas without removing the CSV workflow', 
   await expect(page.getByLabel('Submit Canvas Gradebook CSV')).toBeVisible();
 });
 
+test('direct Canvas can target one Enhanced Rubrics criterion', async ({ page }) => {
+  await page.addInitScript(() => {
+    globalThis.isTauri = true;
+    window.__canvasInvocations = [];
+    window.__TAURI_INTERNALS__ = {
+      invoke: async (command, args = {}) => {
+        window.__canvasInvocations.push({ command, args });
+        if (command === 'canvas_has_saved_token') return false;
+        if (command === 'canvas_connect') {
+          return { id: 'marker-1', name: 'Test Marker', primaryEmail: 'marker@example.edu' };
+        }
+        if (command === 'canvas_list_courses') {
+          return [{ id: 'course-1', name: 'Test course', courseCode: 'CAB403', termName: 'Semester 2' }];
+        }
+        if (command === 'canvas_list_assignments') {
+          return [{
+            id: 'assignment-1',
+            name: 'Final exam',
+            pointsPossible: 40,
+            published: true,
+            rubricTitle: 'Exam sections',
+            rubricPointsPossible: 40,
+            useRubricForGrading: true,
+            rubricCriteria: [{
+              id: '_mcq',
+              description: 'Section A',
+              longDescription: '',
+              pointsPossible: 10,
+              criterionUseRange: true,
+              ignoreForScoring: false
+            }, {
+              id: '_written',
+              description: 'Section B',
+              longDescription: '',
+              pointsPossible: 30,
+              criterionUseRange: true,
+              ignoreForScoring: false
+            }]
+          }];
+        }
+        if (command === 'canvas_list_students') {
+          return [{
+            id: '204272',
+            name: 'Test Student',
+            sortableName: 'Student, Test',
+            integrationId: '12345678',
+            sisUserId: null,
+            loginId: null
+          }];
+        }
+        if (command === 'canvas_upload_result') return { status: 'updated', attachmentFilename: null };
+        throw new Error(`Unexpected mocked Tauri command: ${command}`);
+      }
+    };
+  });
+  await page.goto('/');
+
+  await page.getByLabel('Import results from results.json').setInputFiles({
+    name: 'results.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify({
+      pdfHash: null,
+      twoSided: false,
+      hasMultiAnswer: false,
+      multiAnswerQuestions: {},
+      marking: { defaultMarks: 1, ranges: [], overrides: {} },
+      answerKey: { 0: { A: true } },
+      examResults: [{
+        page: 1,
+        student_number: '12345678',
+        surname: 'STUDENT',
+        initials: 'T',
+        answers: ['A'],
+        diffs: []
+      }]
+    }))
+  });
+
+  await page.getByLabel('Access token').fill('test-token');
+  await page.getByRole('button', { name: 'Connect to Canvas' }).click();
+  await page.getByLabel('Course').selectOption('course-1');
+  await page.getByLabel('Assignment').selectOption('assignment-1');
+
+  await expect(page.getByLabel('Grade destination')).toHaveValue('assignment');
+  await expect(page.locator('.canvas-grade-target__warning')).toContainText('assignment total is worth 40 points');
+
+  await page.getByLabel('Grade destination').selectOption('rubric');
+  const criterion = page.getByLabel('MCQ rubric criterion');
+  await expect(criterion).toContainText('Section A - 10 points');
+  await expect(criterion).toContainText('Section B - 30 points');
+  await expect(page.getByRole('button', { name: 'Upload criterion scores', exact: true })).toBeDisabled();
+
+  await criterion.selectOption('_mcq');
+  await expect(page.locator('.canvas-grade-target__warning')).toContainText('“Section A” is worth 10 points');
+  await expect(page.getByRole('button', { name: 'Upload criterion scores', exact: true })).toBeEnabled();
+
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Upload criterion scores', exact: true }).click();
+  await expect(page.getByText('Upload complete', { exact: true })).toBeVisible();
+
+  const request = await page.evaluate(() => window.__canvasInvocations
+    .find(invocation => invocation.command === 'canvas_upload_result')?.args?.request);
+  expect(request).toMatchObject({
+    courseId: 'course-1',
+    assignmentId: 'assignment-1',
+    userId: '204272',
+    score: 1,
+    rubricCriterionId: '_mcq',
+    pdfBytes: null
+  });
+
+  await page.getByLabel('Grade destination').selectOption('assignment');
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Upload grades', exact: true }).click();
+  await expect(page.getByText('Upload complete', { exact: true })).toBeVisible();
+
+  const assignmentRequest = await page.evaluate(() => window.__canvasInvocations
+    .filter(invocation => invocation.command === 'canvas_upload_result')
+    .at(-1)?.args?.request);
+  expect(assignmentRequest.rubricCriterionId).toBeNull();
+});
+
 test('loads Canvas Enhanced Rubrics assessment criteria alongside a Gradebook', async ({ page }) => {
   await page.goto('/');
 
