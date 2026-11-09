@@ -65,6 +65,13 @@ export function App() {
     onScanStart: () => setComparison({})
   });
 
+  useEffect(() => {
+    document.title = progress === null
+      ? 'exam-scanner'
+      : `exam-scanner ${progress[0]}/${progress[1]}`;
+    return () => { document.title = 'exam-scanner'; };
+  }, [progress]);
+
   const rawCsvImport = async files => {
     if (examResults.length > 0) {
       const confirmation = window.confirm("This will erase current exam scans. Are you sure?");
@@ -267,6 +274,11 @@ export function App() {
             actions={<span class="section-count">{examResults.length} scanned</span>}
           >
             <ExamResultsTable cfg={cfg} examResults={examResults} setExamResults={setExamResults}
+              onViewOriginalPdf={pdf ? (result => setViewer({
+                type: 'pdf', page: result.page,
+                pages: [result.page, ...(cfg.twoSided ? [result.page + 1] : [])],
+                title: cfg.twoSided ? `Original exam — PDF pages ${result.page}–${result.page + 1}` : `Original exam — PDF page ${result.page}`
+              })) : null}
               onDownloadAnnotatedPdf={async result => {
                 try {
                   const blob = await createAnnotatedExamPdf(cfg, result, pdf);

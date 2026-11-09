@@ -15,14 +15,20 @@ const ANSWER_COMBINATIONS = [
     .sort((left, right) => left.length - right.length || left.localeCompare(right))
 ];
 
-function ResultRow({ cfg, result, index, setExamResults, onDownloadAnnotatedPdf }) {
+function ResultRow({ cfg, result, index, setExamResults, onDownloadAnnotatedPdf, onViewOriginalPdf }) {
   return (
     <div class="exam-row" data-testid="exam-result" data-page={result.page}
       style={{ '--qcount': cfg.twoSided ? 160 : 40 }}>
-      {'homographies' in result ? (
-        <button type="button" class="result-pdf-button" onClick={() => onDownloadAnnotatedPdf(result)}
-          aria-label={`Download annotated PDF for page ${result.page}`}>PDF</button>
-      ) : <div aria-hidden="true"></div>}
+      <div class="result-paper-actions">
+        <button type="button" class="result-preview-button" disabled={!onViewOriginalPdf}
+          onClick={() => onViewOriginalPdf?.(result)} title="View original scanned paper"
+          aria-label={`View original PDF for page ${result.page}`}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6" /><path d="m15 15 6 6" /></svg>
+        </button>
+        {'homographies' in result ? <button type="button" class="result-pdf-button" onClick={() => onDownloadAnnotatedPdf(result)}
+          aria-label={`Download annotated PDF for page ${result.page}`} title="Download marked PDF">PDF</button> : null}
+      </div>
       <div class="text-end pe-1">{result.page}</div>
       <div><input autocomplete="off" type="text" data-field="student-number" value={result.student_number}
         class="w-100" onChange={event => updateExamResult(setExamResults, index, { student_number: event.target.value })} /></div>
@@ -62,7 +68,7 @@ function ResultsSearch({ onSearch }) {
   );
 }
 
-export function ExamResultsTable({ cfg, examResults, setExamResults, onDownloadAnnotatedPdf }) {
+export function ExamResultsTable({ cfg, examResults, setExamResults, onDownloadAnnotatedPdf, onViewOriginalPdf }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
@@ -124,7 +130,8 @@ export function ExamResultsTable({ cfg, examResults, setExamResults, onDownloadA
       </div>
       <div class="results-table__scroll" style={{ minHeight: `${pageSize * 2 + 3.5}rem` }}>
         <div class="exam-row" style={{ '--qcount': cfg.twoSided ? 160 : 40 }}>
-          <button type="button" class="table-sort" onClick={() => toggleSort('page')} style={{ gridColumn: 'span 2' }}>Page{sortIndicator('page')}</button>
+          <span class="result-paper-heading">Paper</span>
+          <button type="button" class="table-sort" onClick={() => toggleSort('page')}>Page{sortIndicator('page')}</button>
           <button type="button" class="table-sort" onClick={() => toggleSort('student_number')}>Student #{sortIndicator('student_number')}</button>
           <button type="button" class="table-sort" onClick={() => toggleSort('surname')}>Surname{sortIndicator('surname')}</button>
           <button type="button" class="table-sort" onClick={() => toggleSort('initials')}>Initials{sortIndicator('initials')}</button>
@@ -137,7 +144,7 @@ export function ExamResultsTable({ cfg, examResults, setExamResults, onDownloadA
         </div>
         {shownExams.slice(first, last).map(index => <ResultRow key={examResults[index].page} cfg={cfg}
           result={examResults[index]} index={index} setExamResults={setExamResults}
-          onDownloadAnnotatedPdf={onDownloadAnnotatedPdf} />)}
+          onDownloadAnnotatedPdf={onDownloadAnnotatedPdf} onViewOriginalPdf={onViewOriginalPdf} />)}
       </div>
       <div class="results-footer">
         <span>Showing {shownExams.length === 0 ? 0 : first + 1}–{last} of {shownExams.length}

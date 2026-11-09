@@ -150,7 +150,10 @@ function scannedAnswerPosition(question) {
 }
 
 export async function createAnnotatedExamPdf(config, result, sourcePdf) {
-  const { PDFDocument, rgb } = await import('pdf-lib');
+  const {
+    PDFDocument, rgb, LineCapStyle, LineJoinStyle, pushGraphicsState, popGraphicsState,
+    setStrokingColor, setLineWidth, setLineCap, setLineJoin, moveTo, lineTo, stroke
+  } = await import('pdf-lib');
   const outputDocument = await PDFDocument.create();
   const sourceDocument = sourcePdf instanceof PDFDocument
     ? sourcePdf
@@ -162,8 +165,8 @@ export async function createAnnotatedExamPdf(config, result, sourcePdf) {
   }
 
   const squareColor = rgb(0.5, 0.5, 0.5);
-  const correctColor = rgb(0, 0.5, 0);
-  const incorrectColor = rgb(0.75, 0, 0);
+  const correctColor = rgb(0, 0.65, 0.12);
+  const incorrectColor = rgb(0.9, 0.08, 0.1);
   const { height } = pages[0].getSize();
   const optionIndex = { A: 0, B: 1, C: 2, D: 3, E: 4 };
   const multiAnswerQuestions = config.hasMultiAnswer ? (config.multiAnswerQuestions ?? {}) : {};
@@ -178,18 +181,18 @@ export async function createAnnotatedExamPdf(config, result, sourcePdf) {
   };
 
   const drawCheck = (page, point) => {
-    page.drawLine({
-      start: { x: point[0] - 5, y: point[1] },
-      end: { x: point[0] - 1, y: point[1] - 5 },
-      thickness: 2.5,
-      color: correctColor
-    });
-    page.drawLine({
-      start: { x: point[0] - 1, y: point[1] - 5 },
-      end: { x: point[0] + 8, y: point[1] + 7 },
-      thickness: 2.5,
-      color: correctColor
-    });
+    page.pushOperators(
+      pushGraphicsState(),
+      setStrokingColor(correctColor),
+      setLineWidth(2.5),
+      setLineCap(LineCapStyle.Round),
+      setLineJoin(LineJoinStyle.Round),
+      moveTo(point[0] - 5, point[1]),
+      lineTo(point[0] - 1, point[1] - 5),
+      lineTo(point[0] + 8, point[1] + 7),
+      stroke(),
+      popGraphicsState()
+    );
   };
 
   const drawCross = (page, point) => {
@@ -197,12 +200,14 @@ export async function createAnnotatedExamPdf(config, result, sourcePdf) {
       start: { x: point[0] - 6, y: point[1] - 6 },
       end: { x: point[0] + 6, y: point[1] + 6 },
       thickness: 2.5,
+      lineCap: LineCapStyle.Round,
       color: incorrectColor
     });
     page.drawLine({
       start: { x: point[0] - 6, y: point[1] + 6 },
       end: { x: point[0] + 6, y: point[1] - 6 },
       thickness: 2.5,
+      lineCap: LineCapStyle.Round,
       color: incorrectColor
     });
   };

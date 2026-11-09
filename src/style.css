@@ -372,6 +372,18 @@ select {
   color: var(--brand);
 }
 
+.pdf-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.pdf-card__header .pdf-card__eyebrow {
+  margin: 0;
+}
+
 .pdf-card h3 {
   overflow: hidden;
   margin: 0;
@@ -400,9 +412,7 @@ select {
 }
 
 .pdf-card__remove {
-  align-self: flex-start;
-  margin-top: 12px;
-  font-size: 0.84rem;
+  flex-shrink: 0;
 }
 
 .scanner-config {
@@ -732,7 +742,7 @@ select {
 
 .exam-row {
   display: grid;
-  grid-template-columns: 1.25rem 3.25rem 7rem 13rem 4.5rem 4rem repeat(var(--qcount), 3.25rem);
+  grid-template-columns: 4.25rem 3.25rem 7rem 13rem 4.5rem 4rem repeat(var(--qcount), 3.25rem);
   align-items: center;
   min-height: 2.35rem;
   border-bottom: 1px solid #edf0f5;
@@ -1155,6 +1165,31 @@ select {
   font-size: 0.48rem;
   font-weight: 850;
 }
+
+.result-paper-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 5px;
+}
+
+.result-paper-heading { padding-left: 6px; }
+
+.result-preview-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #8f969c;
+  border-radius: 3px;
+  color: #205d84;
+  background: linear-gradient(180deg, white, #dce2e6);
+  box-shadow: 0 1px 0 white inset;
+}
+
+.result-preview-button:hover:not(:disabled) { border-color: #236c9e; background: #e1f1ff; }
+.result-preview-button:disabled { opacity: 0.45; }
 
 .results-footer {
   padding: 12px 2px 0;
@@ -1826,7 +1861,7 @@ select {
 .setup-column--source {
   display: grid;
   align-content: start;
-  gap: 22px;
+  gap: 24px;
 }
 
 .setup-column--answer .answer-key-grid:not(.is-two-sided) {
@@ -1842,6 +1877,7 @@ select {
 
 .setup-column .pdf-card {
   grid-template-columns: 1fr;
+  height: auto;
   min-height: 0;
 }
 

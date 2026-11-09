@@ -37,7 +37,11 @@ export function PdfSetupPanel({
         )}
       </div>
       <div class="pdf-card__details">
-        <p class="pdf-card__eyebrow">Loaded document</p>
+        <div class="pdf-card__header">
+          <p class="pdf-card__eyebrow">Loaded document</p>
+          <button type="button" class="btn btn-sm btn-outline-danger pdf-card__remove"
+            onClick={onRemove} disabled={currentlyScanning}>Remove PDF</button>
+        </div>
         <h3 title={pdfName}>{pdfName}</h3>
         <p>{pdf.numPages} {pdf.numPages === 1 ? 'page' : 'pages'} · page {currentPage} shown</p>
         <div class="pdf-card__controls" aria-label="PDF preview controls">
@@ -45,12 +49,6 @@ export function PdfSetupPanel({
           <span>{currentPage} / {pdf.numPages}</span>
           <button type="button" onClick={onNext} class="btn btn-outline-secondary">Next</button>
         </div>
-        <button
-          type="button"
-          class="btn btn-link text-danger px-0 pdf-card__remove"
-          onClick={onRemove}
-          disabled={currentlyScanning}
-        >Remove PDF</button>
       </div>
     </div>
   );
