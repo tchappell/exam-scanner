@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { updateExamResult } from '../src/services/resultState.mjs';
+import { pairExamWithCanvas, updateExamResult } from '../src/services/resultState.mjs';
 
 function stateHarness(initial) {
   let value = initial;
@@ -36,4 +36,30 @@ test('updateExamResult accepts an update derived from the current result', () =>
   }));
 
   assert.deepEqual(state.read(), [{ page: 4, answers: ['A', 'B'], score: 2 }]);
+});
+
+test('pairing another paper with the same Canvas student clears the earlier choice without changing numbers', () => {
+  const state = stateHarness([
+    { page: 1, student_number: '12345678', answers: ['A'], canvasMatch: { userId: '42', studentNumber: '12345678' } },
+    { page: 2, student_number: '87654321', answers: ['C'] }
+  ]);
+
+  pairExamWithCanvas(state.set, 1, ['Student, Test', '42', '', '', '12345678']);
+
+  assert.equal(state.read()[0].canvasMatch, null);
+  assert.deepEqual(state.read()[1], {
+    page: 2, student_number: '87654321', answers: ['C'],
+    canvasMatch: { userId: '42', studentNumber: '87654321' }
+  });
+});
+
+test('editing a student number clears its old manual Canvas pairing', () => {
+  const state = stateHarness([{
+    page: 1, student_number: '12345678', canvasMatch: { userId: '42', studentNumber: '12345678' }
+  }]);
+
+  updateExamResult(state.set, 0, { student_number: '87654321' });
+
+  assert.equal(state.read()[0].student_number, '87654321');
+  assert.equal(state.read()[0].canvasMatch, null);
 });

@@ -30,9 +30,8 @@ export function createBrowserScannerAdapter({ pdf, scannerClient }) {
       return scannerClient.invoke('initialize');
     },
 
-    scanPage({ pageNumber, side, compare, multiAnswerQuestions }) {
+    scanPage({ pageNumber, side, multiAnswerQuestions }) {
       return invokeWithPage(scannerClient, pdf, 'scan', pageNumber, side, {
-        compare,
         multiAnswerQuestions
       });
     },

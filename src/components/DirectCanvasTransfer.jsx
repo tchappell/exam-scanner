@@ -12,7 +12,8 @@ import {
   uploadCanvasResult
 } from '../services/canvasDesktop.mjs';
 import { hashBlob } from '../services/examArtifacts.mjs';
-import { applyManualCanvasMatches, matchExamResultsToCanvas } from '../services/canvasMatching.mjs';
+import { applyManualCanvasMatches, matchExamResultsToCanvas, savedCanvasMatches } from '../services/canvasMatching.mjs';
+import { pairExamWithCanvas, updateExamResult } from '../services/resultState.mjs';
 import { CanvasRosterMatch } from './CanvasRosterMatch.jsx';
 
 const DEFAULT_CANVAS_URL = 'https://canvas.qut.edu.au';
@@ -25,7 +26,7 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : `${error}`;
 }
 
-export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, createAnnotatedPdf }) {
+export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, createAnnotatedPdf, onViewPage }) {
   const [baseUrl, setBaseUrl] = useState(DEFAULT_CANVAS_URL);
   const [accessToken, setAccessToken] = useState('');
   const [rememberToken, setRememberToken] = useState(false);
@@ -38,7 +39,6 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
   const [gradeDestination, setGradeDestination] = useState('assignment');
   const [rubricCriterionId, setRubricCriterionId] = useState('');
   const [students, setStudents] = useState([]);
-  const [manualMatches, setManualMatches] = useState(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [includeComment, setIncludeComment] = useState(true);
@@ -48,7 +48,7 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
 
   const canvasCSV = useMemo(() => canvasStudentsToGradebookRows(students), [students]);
   const automaticMatches = matchExamResultsToCanvas(examResults, students.length > 0 ? canvasCSV : null);
-  const matchResult = applyManualCanvasMatches(automaticMatches, manualMatches);
+  const matchResult = applyManualCanvasMatches(automaticMatches, savedCanvasMatches(examResults, canvasCSV));
   const selectedCourse = courses.find(course => course.id === courseId) ?? null;
   const selectedAssignment = assignments.find(assignment => assignment.id === assignmentId) ?? null;
   const rubricCriteria = selectedAssignment?.rubricCriteria ?? [];
@@ -112,7 +112,6 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
       setGradeDestination('assignment');
       setRubricCriterionId('');
       setStudents([]);
-      setManualMatches(new Map());
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -130,7 +129,6 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
       setCourseId('');
       setAssignments([]);
       setStudents([]);
-      setManualMatches(new Map());
       setAssignmentId('');
       setGradeDestination('assignment');
       setRubricCriterionId('');
@@ -153,7 +151,6 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
     setRubricCriterionId('');
     setAssignments([]);
     setStudents([]);
-    setManualMatches(new Map());
     setUpload(null);
     if (!value) return;
     setLoading(true);
@@ -334,7 +331,12 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
         Those students can still be paired manually by name.
       </div> : null}
       <CanvasRosterMatch examResults={examResults} setExamResults={setExamResults} canvasCSV={canvasCSV} matchResult={matchResult}
-        onMatch={(examIndex, canvasIndex) => setManualMatches(previous => new Map(previous).set(examIndex, canvasIndex))} />
+        onViewPage={onViewPage}
+        onMatch={(examIndex, canvasIndex) => pairExamWithCanvas(setExamResults, examIndex, canvasCSV[canvasIndex])}
+        onUnmatch={examIndex => updateExamResult(setExamResults, examIndex, { canvasMatch: null })}
+        onCorrectNumber={(examIndex, value) => updateExamResult(setExamResults, examIndex, {
+          student_number: value, canvasMatch: null
+        })} />
     </> : null}
 
     {selectedAssignment ? <div class="canvas-direct-upload">

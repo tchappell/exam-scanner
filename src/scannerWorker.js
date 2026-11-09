@@ -1393,8 +1393,6 @@ const scan_matrix = async data => {
 
 const scan = async data => {
   const [mat, homographies] = await warpPdfPageLinear(data.bmp, data.page);
-  const compare = data.compare ?? {};
-  const diffPromises = [];
   const matOriginal = mat.mat_clone();
 
   let result;
@@ -1412,67 +1410,12 @@ const scan = async data => {
       abcdepredict,
       data.page,
       data.multiAnswerQuestions
-    )
-    .then(([answers, raw_answers, answer_values]) => {
-      if ('q' in compare) {
-        for (let i = 0; i < 40; i++) {
-          if (answer_values[i].trimEnd() !== compare.q[i]) {
-            const lat = known_lattices[0][3 + Math.floor(i / 10)];
-            let xpos = Math.floor(lat.xstep * 2 + lat.xstart); // Middle of C
-            let ypos = Math.floor(lat.ystep * (i % 10) + lat.ystart); // Row
-            diffPromises.push(difference("answers", i, compare.q[i], answer_values[i].trimEnd(), matOriginal, xpos - 380, ypos - 80, xpos + 380, ypos + 80));
-          }
-        }
-      }
-      return [answers, raw_answers, answer_values];
-    });
+    );
     const digitpredict = await digitpredictPromise;
-    const studentNumberPromise = predict_vertical_cas(mat, known_lattices[0][0], "0123456789", bubblepredict, digitpredict)
-    .then(([student_number, raw_student_number]) => {
-      if ('studentNum' in compare) {
-        const filt = sn => sn.split('').filter(c => !isNaN(c) && c !== ' ').join('');
-        if (filt(student_number) !== filt(compare.studentNum)) {
-          const lat = known_lattices[0][0];
-          let x1 = Math.floor(lat.xstart - 50);
-          let y1 = Math.floor(lat.ystart - 160);
-          let x2 = Math.floor(lat.xstart + 550);
-          let y2 = Math.floor(lat.ystart + 650);
-          diffPromises.push(difference("studentNum", null, compare.studentNum, student_number, matOriginal, x1, y1, x2, y2));
-        }
-      }
-      return [student_number, raw_student_number];
-    });
+    const studentNumberPromise = predict_vertical_cas(mat, known_lattices[0][0], "0123456789", bubblepredict, digitpredict);
     const letterpredict = await letterpredictPromise;
-    const surnamePromise = predict_vertical_cas(mat, known_lattices[0][1], "ABCDEFGHIJKLMNOPQRSTUVWXYZ-'", bubblepredict, letterpredict)
-    .then(([surname, raw_surname]) => {
-      if ('surname' in compare) {
-        const filt = sn => sn.trimEnd();
-        if (filt(surname) !== filt(compare.surname)) {
-          const lat = known_lattices[0][1];
-          let x1 = Math.floor(lat.xstart - 50);
-          let y1 = Math.floor(lat.ystart - 160);
-          let x2 = Math.floor(lat.xstart + 840);
-          let y2 = Math.floor(lat.ystart + 1820);
-          diffPromises.push(difference("surname", null, compare.surname, surname, matOriginal, x1, y1, x2, y2));
-        }
-      }
-      return [surname, raw_surname];
-    });
-    const initialsPromise = predict_vertical_cas(mat, known_lattices[0][2], "ABCDEFGHIJKLMNOPQRSTUVWXYZ", bubblepredict, letterpredict)
-    .then(([initials, raw_initials]) => {
-      if ('initial' in compare) {
-        const filt = sn => sn.replaceAll(' ','');
-        if (filt(initials) !== filt(compare.initial)) {
-          const lat = known_lattices[0][2];
-          let x1 = Math.floor(lat.xstart - 50);
-          let y1 = Math.floor(lat.ystart - 160);
-          let x2 = Math.floor(lat.xstart + 200);
-          let y2 = Math.floor(lat.ystart + 1680);
-          diffPromises.push(difference("initials", null, compare.initial, initials, matOriginal, x1, y1, x2, y2));
-        }
-      }
-      return [initials, raw_initials];
-    });
+    const surnamePromise = predict_vertical_cas(mat, known_lattices[0][1], "ABCDEFGHIJKLMNOPQRSTUVWXYZ-'", bubblepredict, letterpredict);
+    const initialsPromise = predict_vertical_cas(mat, known_lattices[0][2], "ABCDEFGHIJKLMNOPQRSTUVWXYZ", bubblepredict, letterpredict);
 
     const [
       [answers, raw_answers, answer_values],
@@ -1495,20 +1438,7 @@ const scan = async data => {
       abcdepredict,
       data.page,
       data.multiAnswerQuestions
-    )
-    .then(([answers, raw_answers, answer_values]) => {
-      if ('q' in compare) {
-        for (let i = 0; i < 120; i++) {
-          if (answer_values[i].trimEnd() !== compare.q[i + 40]) {
-            const lat = known_lattices[1][Math.floor(i / 10)];
-            let xpos = Math.floor(lat.xstep * 2 + lat.xstart); // Middle of C
-            let ypos = Math.floor(lat.ystep * (i % 10) + lat.ystart); // Row
-            diffPromises.push(difference("answers", i + 40, compare.q[i + 40], answer_values[i].trimEnd(), matOriginal, xpos - 380, ypos - 80, xpos + 380, ypos + 80));
-          }
-        }
-      }
-      return [answers, raw_answers, answer_values];
-    });
+    );
     const [
       [answers2, raw_answers2, answer_values2]
     ] = await Promise.all([answersPromise]);
@@ -1547,13 +1477,12 @@ const scan = async data => {
   }
   
 
-  const diffs = await Promise.all(diffPromises);
   await Promise.all(imgQPromises);
 
   mat.delete();
   matOriginal.delete();
 
-  return [{ ...result, diffs, homographies }, []];
+  return [{ ...result, homographies }, []];
 };
 
 onmessage = async e => {

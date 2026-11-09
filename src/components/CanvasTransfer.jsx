@@ -1,7 +1,8 @@
 import { useState } from 'preact/hooks';
 import { calculateMaximumScore, calculateScore } from '../examDomain.mjs';
 import { isDesktopApp } from '../services/canvasDesktop.mjs';
-import { matchExamResultsToCanvas } from '../services/canvasMatching.mjs';
+import { applyManualCanvasMatches, matchExamResultsToCanvas, savedCanvasMatches } from '../services/canvasMatching.mjs';
+import { pairExamWithCanvas, updateExamResult } from '../services/resultState.mjs';
 import { examResultFilename, hashBlob } from '../services/examArtifacts.mjs';
 import { createCSV, loadCSV } from '../util/csv.mjs';
 import { addBlobToZip, createZip, downloadFile, downloadZip } from '../util/downloads.mjs';
@@ -129,13 +130,15 @@ function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, mat
   );
 }
 
-export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAnnotatedPdf }) {
+export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAnnotatedPdf, onViewPage }) {
   const desktopApp = isDesktopApp();
   const [mode, setMode] = useState(desktopApp ? 'direct' : 'csv');
   const [canvasCSV, setCanvasCSV] = useState(null);
   const [assignments, setAssignments] = useState([]);
   const [assignmentIndex, setAssignmentIndex] = useState('-1');
-  const matchResult = matchExamResultsToCanvas(examResults, canvasCSV);
+  const matchResult = applyManualCanvasMatches(
+    matchExamResultsToCanvas(examResults, canvasCSV), savedCanvasMatches(examResults, canvasCSV)
+  );
   const { examResultMatches } = matchResult;
 
   const loadGradebook = async event => {
@@ -185,7 +188,7 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
       </div> : null}
 
       {mode === 'direct' ? <DirectCanvasTransfer examResults={examResults} setExamResults={setExamResults}
-        cfg={cfg} pdf={pdf} createAnnotatedPdf={createAnnotatedPdf} /> : <>
+        cfg={cfg} pdf={pdf} createAnnotatedPdf={createAnnotatedPdf} onViewPage={onViewPage} /> : <>
       {!canvasCSV ? (
         <div class="canvas-upload">
           <div><strong>Load a Canvas Gradebook CSV</strong><p>Match scanned student numbers and select the assignment to update.</p></div>
@@ -193,7 +196,13 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
             aria-label="Submit Canvas Gradebook CSV" />
         </div>
       ) : <>
-        <CanvasRosterMatch examResults={examResults} setExamResults={setExamResults} canvasCSV={canvasCSV} matchResult={matchResult} />
+        <CanvasRosterMatch examResults={examResults} setExamResults={setExamResults} canvasCSV={canvasCSV} matchResult={matchResult}
+          onViewPage={onViewPage}
+          onMatch={(examIndex, canvasIndex) => pairExamWithCanvas(setExamResults, examIndex, canvasCSV[canvasIndex])}
+          onUnmatch={examIndex => updateExamResult(setExamResults, examIndex, { canvasMatch: null })}
+          onCorrectNumber={(examIndex, value) => updateExamResult(setExamResults, examIndex, {
+            student_number: value, canvasMatch: null
+          })} />
         <CanvasRubricTransfer examResults={examResults} cfg={cfg} gradebookCsv={canvasCSV}
           gradebookMatches={examResultMatches} />
       </>}

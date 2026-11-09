@@ -9,20 +9,6 @@ export function activeMultiAnswerQuestions(config) {
     .map(Number);
 }
 
-export function comparisonForPage(comparison, pageNumber) {
-  if (!comparison || !('results' in comparison)) return {};
-  const pageOffset = 1 - comparison.cfg_firstPage;
-  const expected = comparison.results.get(pageNumber + pageOffset);
-  if (expected === undefined) return {};
-
-  const selected = {};
-  if (comparison.cfg_checkNumbers) selected.studentNum = expected.studentNum;
-  if (comparison.cfg_checkName) selected.surname = expected.surname;
-  if (comparison.cfg_checkInitials) selected.initial = expected.initial;
-  if (comparison.cfg_checkAnswers) selected.q = expected.q;
-  return selected;
-}
-
 function responseAnswers(response, side) {
   const values = side === 0 ? response.answer_values : response.answer_values2;
   const text = side === 0 ? response.answers : response.answers2;
@@ -57,7 +43,6 @@ async function prepareScanner(scanner, callbacks) {
 export async function scanDocument({
   scanner,
   config,
-  comparison = {},
   signal,
   callbacks
 }) {
@@ -79,16 +64,13 @@ export async function scanDocument({
   let completed = 0;
   while (!signal?.aborted && pageNumber <= config.endAt) {
     try {
-      const compare = comparisonForPage(comparison, pageNumber);
       const first = await scanner.scanPage({
         pageNumber,
         side: 0,
-        compare,
         multiAnswerQuestions
       });
       let answers = responseAnswers(first, 0);
       let rawAnswers = first.raw_answers ?? [];
-      let diffs = first.diffs ?? [];
       let homographies2 = [];
 
       if (signal?.aborted) break;
@@ -96,12 +78,10 @@ export async function scanDocument({
         const second = await scanner.scanPage({
           pageNumber: pageNumber + 1,
           side: 1,
-          compare,
           multiAnswerQuestions
         });
         answers = normalizeFirstSideAnswers(answers).concat(responseAnswers(second, 1));
         rawAnswers = rawAnswers.concat(second.raw_answers2 ?? []);
-        diffs = diffs.concat(second.diffs ?? []);
         homographies2 = second.homographies ?? [];
       }
 
@@ -122,7 +102,7 @@ export async function scanDocument({
             ...rawAnswer,
             scanned_value: answers[index]
           })),
-          diffs,
+          diffs: [],
           homographies: first.homographies,
           homographies2
         };
@@ -167,7 +147,6 @@ export async function attachPdfMetadata({
       const first = await scanner.scanPage({
         pageNumber: config.startAt,
         side: 0,
-        compare: {},
         multiAnswerQuestions
       });
       let answers = responseAnswers(first, 0);
@@ -175,7 +154,6 @@ export async function attachPdfMetadata({
         const second = await scanner.scanPage({
           pageNumber: config.startAt + 1,
           side: 1,
-          compare: {},
           multiAnswerQuestions
         });
         answers = normalizeFirstSideAnswers(answers).concat(responseAnswers(second, 1));

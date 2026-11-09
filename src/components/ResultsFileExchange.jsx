@@ -1,6 +1,7 @@
 import { fixAnswers } from '../examDomain.mjs';
 import { hashBlob } from '../services/examArtifacts.mjs';
 import { buildRawResultsCsvRows, buildResultsCsvRows } from '../services/resultExports.mjs';
+import { restoreComparison, serializeComparison } from '../services/comparisonImport.mjs';
 import { createCSV } from '../util/csv.mjs';
 import { downloadFile } from '../util/downloads.mjs';
 
@@ -16,7 +17,9 @@ export function ResultsFileExchange({
   currentlyScanning,
   importCsvPage,
   setImportCsvPage,
-  onImportRawCsv
+  onImportRawCsv,
+  comparison,
+  setComparison
 }) {
   const exportResults = () => {
     const rows = buildResultsCsvRows({
@@ -52,7 +55,8 @@ export function ResultsFileExchange({
       multiAnswerQuestions: multiAnswerQuestionsFor(cfg),
       marking: cfg.marking,
       examResults: savedResults,
-      answerKey: cfg.answerKey
+      answerKey: cfg.answerKey,
+      comparison: serializeComparison(comparison)
     };
     downloadFile('results.json', new Blob([JSON.stringify(dataset)], { type: 'application/json' }));
   };
@@ -92,6 +96,7 @@ export function ResultsFileExchange({
         marking: dataset.marking ?? previous.marking
       }));
       setExamResults(loadedResults);
+      setComparison(restoreComparison(dataset.comparison ?? {}));
     } catch (error) {
       window.alert(`Invalid JSON file: ${error.message}`);
     }

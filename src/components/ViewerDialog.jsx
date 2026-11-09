@@ -4,6 +4,7 @@ import { ModalDialog } from './ModalDialog.jsx';
 
 export function ViewerDialog({ viewer, pdf, onClose }) {
   const [pdfImage, setPdfImage] = useState(null);
+  const [error, setError] = useState(null);
   const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
@@ -11,11 +12,14 @@ export function ViewerDialog({ viewer, pdf, onClose }) {
     let url = null;
     setZoom(1);
     setPdfImage(null);
+    setError(null);
     if (!viewer || viewer.type !== 'pdf' || !pdf) return undefined;
     renderPdfPagePreview(pdf, viewer.page, 2).then(blob => {
       if (cancelled) return;
       url = URL.createObjectURL(blob);
       setPdfImage(url);
+    }).catch(caught => {
+      if (!cancelled) setError(`Could not render PDF page ${viewer.page}: ${caught.message}`);
     });
     return () => {
       cancelled = true;
@@ -33,7 +37,7 @@ export function ViewerDialog({ viewer, pdf, onClose }) {
         <button type="button" class="btn btn-sm btn-link" onClick={() => setZoom(1)}>Reset</button>
       </div>
       <div class="viewer-canvas">
-        {image ? <img src={image} alt={viewer?.title ?? 'Scanned exam page'} style={{ width: `${zoom * 100}%` }} />
+        {error ? <p role="alert">{error}</p> : image ? <img src={image} alt={viewer?.title ?? 'Scanned exam page'} style={{ width: `${zoom * 100}%` }} />
           : <p>Rendering page...</p>}
       </div>
     </ModalDialog>

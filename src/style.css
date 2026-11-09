@@ -1428,6 +1428,79 @@ select {
   color: var(--muted);
 }
 
+.canvas-match-card__number {
+  grid-column: 2;
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+
+.canvas-match-paper {
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.canvas-match-paper__actions,
+.canvas-match-paper__number-edit,
+.comparison-panel__import,
+.comparison-panel__settings,
+.comparison-panel__summary,
+.comparison-panel__pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.canvas-match-paper__status {
+  margin: 7px 0;
+  color: #176347;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.canvas-match-paper__correction {
+  margin-top: 10px;
+  font-size: 0.78rem;
+}
+
+.canvas-match-paper__correction summary,
+.canvas-manual-pairings summary { cursor: pointer; }
+.canvas-match-paper__correction form { margin-top: 8px; }
+.canvas-match-paper__correction label { display: block; margin-bottom: 4px; }
+.canvas-match-paper__number-edit input { min-width: 0; width: 160px; font-size: 1.05rem; }
+.canvas-duplicates { margin: 18px 0; }
+.canvas-duplicates > h4 { font-size: 1rem; }
+.canvas-duplicates > p,
+.canvas-match-selection { font-size: 0.82rem; }
+.canvas-duplicate-group {
+  padding: 14px;
+  margin: 12px 0;
+  border: 1px solid #b3a06c;
+  background: #f7f3e7;
+}
+.canvas-duplicate-group h5 { font-size: 0.88rem; margin-bottom: 12px; }
+.canvas-duplicate-group__papers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.canvas-manual-pairings { margin: 16px 0; }
+.comparison-panel__intro { font-size: 0.85rem; color: var(--muted); }
+.comparison-panel__import { margin: 14px 0; }
+.comparison-panel__import input { max-width: 100%; }
+.comparison-panel__settings { align-items: end; margin: 14px 0; }
+.comparison-panel__settings .field-group { margin-left: auto; }
+.comparison-panel__settings input[type="number"] { max-width: 220px; }
+.comparison-panel__summary { justify-content: space-between; margin: 18px 0 12px; font-size: 0.83rem; }
+.comparison-panel__notice { padding: 10px; background: #f7f3e7; font-size: 0.8rem; }
+.comparison-difference--text { grid-template-columns: 1fr; min-height: 0; }
+.comparison-panel__pagination { justify-content: end; margin-top: 14px; font-size: 0.8rem; }
+
 .canvas-assignment {
   display: flex;
   align-items: end;

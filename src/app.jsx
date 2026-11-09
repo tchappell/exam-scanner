@@ -4,12 +4,12 @@ import { normaliseAnswer } from './examDomain.mjs';
 import { createLazyScannerClient } from './scannerClient.mjs';
 import { ScanIssues } from './components/ScanIssues.jsx';
 import { ScannerConfig } from './components/ScannerConfig.jsx';
-import { ComparisonConfig } from './components/ComparisonConfig.jsx';
+import { ComparisonPanel } from './components/ComparisonPanel.jsx';
 import { AnswerKeyPanel } from './components/AnswerKeyPanel.jsx';
 import { AppHeader, WorkspaceSection } from './components/WorkspaceSection.jsx';
 import { PdfSetupPanel } from './components/PdfSetupPanel.jsx';
 import { ScanProgress } from './components/ScanProgress.jsx';
-import { ComparisonReview, QuestionableReview } from './components/ReviewPanels.jsx';
+import { QuestionableReview } from './components/ReviewPanels.jsx';
 import { ExamResultsTable } from './components/ExamResultsTable.jsx';
 import { ResultsFileExchange } from './components/ResultsFileExchange.jsx';
 import { CanvasTransfer } from './components/CanvasTransfer.jsx';
@@ -61,8 +61,8 @@ export function App() {
     pdf,
     config: cfg,
     setConfig: setCfg,
-    comparison,
-    scannerClient
+    scannerClient,
+    onScanStart: () => setComparison({})
   });
 
   const rawCsvImport = async files => {
@@ -111,8 +111,10 @@ export function App() {
       }
 
       if (!doScan) {
+        setComparison({});
         setExamResults(newResults);
       } else {
+        setComparison({});
         await matchLoadedExamsToPdf(newResults);
       }
     } else {
@@ -228,7 +230,6 @@ export function App() {
                 <div class="setup-stack-section setup-layout__options">
                   <h3>Scan configuration</h3>
                   <ScannerConfig config={cfg} setConfig={setCfg} pdf={pdf} currentlyScanning={currentlyScanning} />
-                  <ComparisonConfig comparison={comparison} setComparison={setComparison} scannerConfig={cfg} currentlyScanning={currentlyScanning} />
                 </div>
               </div>
               <div class="setup-column setup-column--answer" id="answer-key">
@@ -274,7 +275,7 @@ export function App() {
                   reportScanIssue('Could not create annotated PDF', error, result.page);
                 }
               }} />
-            <ComparisonReview cfg={cfg} setCfg={setCfg} comparison={comparison}
+            <ComparisonPanel cfg={cfg} comparison={comparison} setComparison={setComparison} currentlyScanning={currentlyScanning}
               examResults={examResults} setExamResults={setExamResults}
               onViewPage={pdf ? ((page, title) => setViewer({ type: 'pdf', page, title })) : null}
               onViewImage={(src, title) => setViewer({ type: 'image', src, title })} />
@@ -303,8 +304,11 @@ export function App() {
               importCsvPage={importCSVPage1}
               setImportCsvPage={setImportCSVPage1}
               onImportRawCsv={rawCsvImport}
+              comparison={comparison}
+              setComparison={setComparison}
             />
             <CanvasTransfer examResults={examResults} setExamResults={setExamResults} cfg={cfg} pdf={pdf}
+              onViewPage={pdf ? ((page, title) => setViewer({ type: 'pdf', page, title })) : null}
               createAnnotatedPdf={createAnnotatedExamPdf} />
           </WorkspaceSection>
         </main>

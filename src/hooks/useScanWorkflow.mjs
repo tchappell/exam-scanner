@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { createBrowserScannerAdapter } from '../services/browserScannerAdapter.mjs';
 import { attachPdfMetadata, scanDocument } from '../services/scanWorkflow.mjs';
 
-export function useScanWorkflow({ pdf, config, setConfig, comparison, scannerClient }) {
+export function useScanWorkflow({ pdf, config, setConfig, scannerClient, onScanStart }) {
   const [progress, setProgress] = useState(null);
   const [stage, setStage] = useState(null);
   const [results, setResults] = useState([]);
@@ -55,14 +55,14 @@ export function useScanWorkflow({ pdf, config, setConfig, comparison, scannerCli
 
     setResults([]);
     setIssues([]);
+    onScanStart?.();
     await run(signal => scanDocument({
       scanner: createBrowserScannerAdapter({ pdf, scannerClient }),
       config,
-      comparison,
       signal,
       callbacks: createCallbacks()
     }));
-  }, [comparison, config, createCallbacks, pdf, results.length, run, scannerClient]);
+  }, [config, createCallbacks, pdf, results.length, run, scannerClient, onScanStart]);
 
   const matchLoadedExamsToPdf = useCallback(async loadedResults => {
     if (abortRef.current !== null) {

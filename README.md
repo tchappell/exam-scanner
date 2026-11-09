@@ -29,6 +29,36 @@ npm run test:e2e
 installed Microsoft Edge browser to run the recognition fixtures; it takes a
 few minutes on the current development machine.
 
+## Review official scanning results
+
+Scan the papers and make your corrections first. When the official results
+arrive, use **Compare another scan** in the review section to load their
+`raw_results.csv`. This compares against the results currently on screen;
+there is no need to scan the PDF again.
+
+Papers are paired by their PDF page, so a corrected student number does not
+break the comparison. Check the **CSV page 1 corresponds to PDF page** setting
+if the official file excludes the marker sheet or covers only part of the PDF.
+For each difference, choose **Keep my result**, **Use imported result**, or
+enter a correction. Importing a comparison does not change any grades or student
+details until you make a choice. Missing pages are reported and kept as they are.
+
+Download the **working dataset** to save your corrected exams, comparison
+decisions, and manual Canvas pairings. Resume that JSON file when continuing
+later; load the same source PDF to use paper previews and annotated PDF exports.
+
+### Match papers to Canvas students
+
+Each unmatched paper has a **View paper** button opening its PDF page with zoom,
+and a **Correct recorded student number** field. Duplicate numbers appear
+together, with all affected papers visible. Choose which paper belongs to the
+Canvas student, then inspect and correct the other papers as needed.
+
+Pairing records the chosen Canvas student without changing the number read
+from the paper. A manual pairing can be undone, and changing a paper's recorded
+number clears its manual pairing so it can be matched again. Pairings are saved
+by Canvas user ID and survive changes in gradebook row order.
+
 ## Desktop app
 
 The Tauri desktop app is a thin Windows shell around the same Vite build. It
@@ -179,16 +209,16 @@ for adjustment when a real ACSPRI multi-answer export becomes available.
   owning the presentation details of results, review, analysis, or exports.
 - `src/components/WorkspaceSection.jsx` provides the application shell, workflow
   navigation, numbered sections, and empty states.
-- `src/components/PdfSetupPanel.jsx`, `ScannerConfig.jsx`, and
-  `ComparisonConfig.jsx` own the document-setup experience.
+- `src/components/PdfSetupPanel.jsx` and `ScannerConfig.jsx` own the
+  document-setup experience.
 - `src/components/AnswerKeyGrid.jsx` owns the responsive 40/160-question key,
   including per-question multi-answer controls; `AnswerKeyPanel.jsx` owns the
   request-form fields and export interaction.
 - `src/components/ScanProgress.jsx` and `ScanIssues.jsx` present scanner status
   without owning scanner state.
 - `src/components/ExamResultsTable.jsx` owns result searching, paging, editing,
-  and annotated-PDF actions; `ReviewPanels.jsx` owns comparison and uncertain-mark
-  review queues.
+  and annotated-PDF actions; `ReviewPanels.jsx` owns the uncertain-mark review
+  queue, and `ComparisonPanel.jsx` compares imported results with reviewed exams.
 - `src/components/ResultsFileExchange.jsx` owns CSV/JSON import and export;
   `CanvasTransfer.jsx`, `CanvasRubricTransfer.jsx`, `DirectCanvasTransfer.jsx`,
   and `CanvasRosterMatch.jsx` own the Canvas CSV, rubric, direct-upload, and

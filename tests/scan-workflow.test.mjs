@@ -4,7 +4,6 @@ import test from 'node:test';
 import {
   activeMultiAnswerQuestions,
   attachPdfMetadata,
-  comparisonForPage,
   scanDocument
 } from '../src/services/scanWorkflow.mjs';
 
@@ -49,24 +48,23 @@ test('scanner settings expose only enabled multi-answer questions', () => {
   }), []);
 });
 
-test('comparison settings are translated for the current PDF page', () => {
-  const comparison = {
-    cfg_firstPage: 5,
-    cfg_checkNumbers: true,
-    cfg_checkName: false,
-    cfg_checkInitials: true,
-    cfg_checkAnswers: true,
-    results: new Map([[7, {
-      studentNum: '12345678', surname: 'EXAMPLE', initial: 'A', q: ['B']
-    }]])
-  };
-
-  assert.deepEqual(comparisonForPage(comparison, 11), {
-    studentNum: '12345678',
-    initial: 'A',
-    q: ['B']
+test('recognition requests are independent of imported comparison results', async () => {
+  const calls = [];
+  const outcome = await scanDocument({
+    scanner: {
+      async initialize() {},
+      async scanPage(request) {
+        calls.push(request);
+        return firstSideResponse('C');
+      }
+    },
+    config: { startAt: 1, endAt: 1, twoSided: false, hasMarker: false },
+    comparison: { results: new Map([[1, { q: ['B'] }]]) }
   });
-  assert.deepEqual(comparisonForPage(comparison, 12), {});
+
+  assert.deepEqual(calls, [{ pageNumber: 1, side: 0, multiAnswerQuestions: [] }]);
+  assert.equal(outcome.results[0].answers[0], 'C');
+  assert.deepEqual(outcome.results[0].diffs, []);
 });
 
 test('two-sided scanning consumes a marker and returns one 160-answer exam', async () => {

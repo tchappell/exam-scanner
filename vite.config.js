@@ -8,7 +8,10 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5173,
-    strictPort: true
+    strictPort: true,
+    watch: {
+      ignored: ['**/src-tauri/**']
+    }
   },
   // The recognition worker is created lazily. Tell the development server
   // about its large dependencies up front so first use does not trigger a
