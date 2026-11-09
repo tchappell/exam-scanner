@@ -11,19 +11,39 @@ function proportionalCrop(region, canvas) {
   return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null;
 }
 
-function dataUrl(blob) {
+function dataUrl(blob, signal) {
   return new Promise((resolve, reject) => {
+    signal?.throwIfAborted();
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Could not store the comparison crop.'));
+    const abort = () => reader.abort();
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    reader.onload = () => {
+      cleanup();
+      resolve(reader.result);
+    };
+    reader.onerror = () => {
+      cleanup();
+      reject(new Error('Could not store the comparison crop.'));
+    };
+    reader.onabort = () => {
+      cleanup();
+      reject(new DOMException('Comparison image preparation cancelled.', 'AbortError'));
+    };
+    signal?.addEventListener('abort', abort, { once: true });
     reader.readAsDataURL(blob);
   });
 }
 
+function yieldToControls() {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 /** Render pages sequentially and retain only the compact crops, never recognition results. */
 export async function renderComparisonCrops({ pdf, differences, examResults, signal, onCrop, onError, onProgress }) {
+  if (signal?.aborted) return;
   const pages = new Map();
   for (const diff of differences) {
+    if (signal?.aborted) return;
     const region = comparisonCropRegion(diff);
     const result = examResults[diff.i];
     if (!region || !result || Number(result.page) !== Number(diff.page)) {
@@ -36,13 +56,16 @@ export async function renderComparisonCrops({ pdf, differences, examResults, sig
   }
 
   let completed = differences.length - [...pages.values()].reduce((total, items) => total + items.length, 0);
+  if (signal?.aborted) return;
   onProgress?.({ completed, total: differences.length });
   for (const [pageNumber, items] of pages) {
+    await yieldToControls();
     if (signal?.aborted) return;
     let canvas;
     try {
-      canvas = await renderPdfPageCanvas(pdf, pageNumber, RENDER_SCALE);
+      canvas = await renderPdfPageCanvas(pdf, pageNumber, RENDER_SCALE, { signal });
       for (const { diff, region, result } of items) {
+        await yieldToControls();
         if (signal?.aborted) return;
         try {
           const homographies = region.side === 0 ? result.homographies : result.homographies2;
@@ -54,7 +77,7 @@ export async function renderComparisonCrops({ pdf, differences, examResults, sig
           const crop = new OffscreenCanvas(rect.width, rect.height);
           try {
             crop.getContext('2d').drawImage(canvas, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
-            const src = await dataUrl(await crop.convertToBlob({ type: 'image/jpeg', quality: 0.85 }));
+            const src = await dataUrl(await crop.convertToBlob({ type: 'image/jpeg', quality: 0.85 }), signal);
             if (signal?.aborted) return;
             onCrop(diff.id, { src, approximate: mapped === null });
           } finally {
@@ -64,12 +87,14 @@ export async function renderComparisonCrops({ pdf, differences, examResults, sig
         } catch (error) {
           if (!signal?.aborted) onError(diff.id, error);
         }
+        if (signal?.aborted) return;
         onProgress?.({ completed: ++completed, total: differences.length });
       }
     } catch (error) {
       for (const { diff } of items) {
         if (signal?.aborted) return;
         onError(diff.id, error);
+        if (signal?.aborted) return;
         onProgress?.({ completed: ++completed, total: differences.length });
       }
     } finally {

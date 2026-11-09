@@ -36,9 +36,11 @@ arrive, use **Compare another scan** in the review section to load their
 `raw_results.csv`. This compares against the results currently on screen;
 there is no need to scan the PDF again.
 
+Loading the CSV only sets up the comparison. Choose which fields to compare and
+check **CSV page 1 corresponds to PDF page**, then select **Compare results**.
 Papers are paired by their PDF page, so a corrected student number does not
-break the comparison. Check the **CSV page 1 corresponds to PDF page** setting
-if the official file excludes the marker sheet or covers only part of the PDF.
+break the comparison. The page offset can account for an omitted marker sheet
+or an official file covering only part of the PDF.
 For each difference, choose **Keep my result**, **Use imported result**, or
 enter a correction. Importing a comparison does not change any grades or student
 details until you make a choice. Missing pages are reported and kept as they are.
@@ -49,6 +51,12 @@ This uses saved page alignment rather than running recognition again. Older
 datasets without alignment use the standard sheet layout and label those crops
 as approximate. The generated images are included in saved working datasets,
 so they remain available when resuming without the PDF.
+
+While images are being prepared, the comparison settings are locked and a
+**Cancel** button stops preparation and unlocks them. Prepared images and your
+corrections are kept. You can prepare the remaining images, or change the
+settings and select **Compare results** again. Restored comparisons with missing
+images wait for **Prepare comparison images** rather than starting automatically.
 
 Download the **working dataset** to save your corrected exams, comparison
 decisions, and manual Canvas pairings. Resume that JSON file when continuing

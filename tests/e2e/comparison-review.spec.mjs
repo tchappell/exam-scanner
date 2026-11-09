@@ -81,6 +81,7 @@ test('late official results merge into reviewed exams and resume with comparison
   });
 
   const panel = page.getByRole('region', { name: 'Compare another scan' });
+  await panel.getByRole('button', { name: 'Compare results', exact: true }).click();
   await expect(panel.getByText('2 papers compared · 3 differences to review · 0 reviewed')).toBeVisible();
   await panel.screenshot({ path: 'test-results/comparison-review-preview.png' });
   await expect(panel.locator('[data-difference="1:studentNum"]')).toContainText('87654322');

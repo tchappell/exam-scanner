@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { normaliseAnswer } from '../examDomain.mjs';
 import { buildComparisonFromRows, buildComparisonReview } from '../services/comparisonImport.mjs';
 import { renderComparisonCrops } from '../services/comparisonCrops.mjs';
@@ -14,8 +14,13 @@ const fields = [
 const fieldNames = { studentNum: 'Student number', surname: 'Surname', initials: 'Initials', answers: 'Answer' };
 const resultFields = { studentNum: 'student_number', surname: 'surname', initials: 'initials' };
 const displayValue = value => `${value ?? ''}`.trim() || '(blank)';
+const comparisonSettings = (source, cfg) => ({
+  ...Object.fromEntries(fields.map(([field]) => [field, Boolean(source[field])])),
+  cfg_firstPage: Number(source.cfg_firstPage),
+  twoSided: Boolean(cfg.twoSided)
+});
 
-function Difference({ diff, crop, cropError, hasPdf, decision, cfg, result, onChoose, onViewPage, onViewImage, onRetryCrop }) {
+function Difference({ diff, crop, cropError, hasPdf, preparing, cancelled, decision, cfg, result, onChoose, onViewPage, onViewImage, onRetryCrop }) {
   const current = diff.field === 'answers' ? result.answers[diff.idx] : result[resultFields[diff.field]];
   const physicalPage = result.page + (cfg.twoSided && diff.field === 'answers' && diff.idx >= 40 ? 1 : 0);
   const title = `PDF page ${physicalPage}${diff.field === 'answers' ? ` — question ${diff.idx + 1}` : ' — student details'}`;
@@ -27,8 +32,8 @@ function Difference({ diff, crop, cropError, hasPdf, decision, cfg, result, onCh
     </button> : <div class={`${imageClass} comparison-crop-placeholder`}>
       {!hasPdf ? <span>Load the source PDF to show this image.</span>
         : cropError ? <><span>Could not prepare this image: {cropError}</span>
-          <button type="button" class="btn btn-sm btn-outline-secondary" onClick={onRetryCrop}>Retry image</button></>
-          : <span role="status">Preparing comparison image…</span>}
+          <button type="button" class="btn btn-sm btn-outline-secondary" disabled={preparing} onClick={onRetryCrop}>Retry image</button></>
+          : <span role="status">{preparing ? 'Preparing comparison image…' : cancelled ? 'Image preparation cancelled.' : 'Image not prepared yet.'}</span>}
     </div>}
     <div class="review-item__body">
       <div class="review-item__heading">
@@ -59,8 +64,14 @@ export function ComparisonPanel({ comparison, setComparison, cfg, pdf, examResul
   const [page, setPage] = useState(0);
   const [cropProgress, setCropProgress] = useState(null);
   const [cropErrors, setCropErrors] = useState({});
-  const [cropRetry, setCropRetry] = useState(0);
+  const [cropRunning, setCropRunning] = useState(false);
+  const [cropCancelled, setCropCancelled] = useState(false);
+  const cropJob = useRef(null);
   const review = comparison.review;
+  const appliedSettings = useMemo(() => review?.settings ?? comparisonSettings(comparison, cfg), [review]);
+  const settings = comparisonSettings(comparison, cfg);
+  const settingsChanged = Boolean(review) && Object.keys(settings).some(field => settings[field] !== appliedSettings[field]);
+  const controlsLocked = currentlyScanning || cropRunning;
   const decisions = comparison.decisions ?? {};
   const differences = review?.diffs ?? [];
   const isReviewed = diff => {
@@ -73,41 +84,81 @@ export function ComparisonPanel({ comparison, setComparison, cfg, pdf, examResul
   const visible = showReviewed ? differences : pending;
   const lastPage = Math.max(0, Math.ceil(visible.length / 30) - 1);
   const activePage = Math.min(page, lastPage);
+  const missingImages = differences.filter(diff => !(diff.img || comparison.cropImages?.[diff.id]?.src));
 
-  useEffect(() => {
+  const cancelPreparation = (showCancellation = true) => {
+    const job = cropJob.current;
+    cropJob.current = null;
+    job?.controller.abort();
+    setCropRunning(false);
+    setCropCancelled(Boolean(job) && showCancellation);
+    if (!showCancellation) setCropProgress(null);
+  };
+
+  const prepareImages = source => {
+    if (!pdf || !source.review || cropJob.current || currentlyScanning) return;
+    if (source.review === review && settingsChanged) return;
+    const missing = source.review.diffs.filter(diff => !(diff.img || source.cropImages?.[diff.id]?.src));
+    if (missing.length === 0) return;
+    const job = { pdf, review: source.review, controller: new AbortController() };
+    cropJob.current = job;
+    const active = () => cropJob.current === job && !job.controller.signal.aborted;
     setCropErrors({});
-    setCropProgress(null);
-    if (!pdf || !review || currentlyScanning) return undefined;
-    const missing = review.diffs.filter(diff => !(diff.img || comparison.cropImages?.[diff.id]?.src));
-    if (missing.length === 0) return undefined;
-    const controller = new AbortController();
+    setCropProgress({ completed: 0, total: missing.length });
+    setCropCancelled(false);
+    setCropRunning(true);
     renderComparisonCrops({
-      pdf, differences: missing, examResults, signal: controller.signal,
+      pdf, differences: missing, examResults, signal: job.controller.signal,
       onCrop: (id, crop) => setComparison(previous => {
-        if (controller.signal.aborted || previous.review !== review) return previous;
+        if (!active() || previous.review !== job.review) return previous;
         return { ...previous, cropImages: { ...previous.cropImages, [id]: crop } };
       }),
       onError: (id, caught) => {
-        if (!controller.signal.aborted) setCropErrors(previous => ({ ...previous, [id]: caught.message ?? `${caught}` }));
+        if (active()) setCropErrors(previous => ({ ...previous, [id]: caught.message ?? `${caught}` }));
       },
       onProgress: progress => {
-        if (!controller.signal.aborted) setCropProgress(progress);
+        if (active()) setCropProgress(progress);
       }
     }).catch(caught => {
-      if (!controller.signal.aborted) setCropErrors(Object.fromEntries(missing.map(diff => [diff.id, caught.message ?? `${caught}`])));
+      if (active()) setCropErrors(Object.fromEntries(missing.map(diff => [diff.id, caught.message ?? `${caught}`])));
+    }).finally(() => {
+      if (cropJob.current !== job) return;
+      cropJob.current = null;
+      setCropRunning(false);
     });
-    return () => controller.abort();
-  }, [pdf, review, currentlyScanning, cropRetry]);
+  };
+
+  useEffect(() => {
+    const job = cropJob.current;
+    if (job && (job.pdf !== pdf || job.review !== review || currentlyScanning || settingsChanged)) cancelPreparation(false);
+  }, [pdf, review, currentlyScanning, settingsChanged]);
+
+  useEffect(() => () => {
+    const job = cropJob.current;
+    cropJob.current = null;
+    job?.controller.abort();
+  }, []);
 
   const compare = source => {
+    if (controlsLocked) return;
+    if (!fields.some(([field]) => source[field])) {
+      setError('Select at least one field to compare.');
+      return;
+    }
     const nextReview = buildComparisonReview(examResults, source, cfg);
     if (nextReview.error) {
       setError(nextReview.error);
       return;
     }
-    setComparison({ ...source, review: nextReview, decisions: {}, cropImages: {} });
+    nextReview.settings = comparisonSettings(source, cfg);
+    const nextComparison = { ...source, review: nextReview, decisions: {}, cropImages: {} };
+    setComparison(nextComparison);
     setPage(0);
     setError(null);
+    setCropErrors({});
+    setCropCancelled(false);
+    setCropProgress(null);
+    prepareImages(nextComparison);
   };
 
   const importFile = async event => {
@@ -119,7 +170,11 @@ export function ComparisonPanel({ comparison, setComparison, cfg, pdf, examResul
         filename: file.name, scannerConfig: cfg, previousComparison: comparison
       });
       if (source.error) { setError(source.error); return; }
-      compare(source);
+      cancelPreparation(false);
+      setComparison(source);
+      setPage(0);
+      setCropErrors({});
+      setError(null);
     } catch (caught) {
       setError(`Could not read the comparison CSV: ${caught.message}`);
     }
@@ -140,13 +195,13 @@ export function ComparisonPanel({ comparison, setComparison, cfg, pdf, examResul
   return <section class="review-panel comparison-panel" aria-labelledby="comparison-title">
     <div class="review-panel__header">
       <div><p class="review-panel__eyebrow">Official results</p><h3 id="comparison-title">Compare another scan</h3></div>
-      {comparison.results ? <button type="button" class="btn btn-sm btn-outline-secondary" disabled={currentlyScanning}
-        onClick={() => { setComparison({}); setError(null); }}>Remove comparison</button> : null}
+      {comparison.results ? <button type="button" class="btn btn-sm btn-outline-secondary" disabled={controlsLocked}
+        onClick={() => { cancelPreparation(false); setComparison({}); setError(null); }}>Remove comparison</button> : null}
     </div>
     <p class="comparison-panel__intro">Import the official raw results CSV when it arrives. Compare it with your reviewed exams, then keep your result or use the imported value for each difference. Papers are paired by PDF page.</p>
     <div class="comparison-panel__import">
       <input type="file" accept=".csv,text/csv" aria-label="Import another scan for comparison"
-        disabled={currentlyScanning || examResults.length === 0} onChange={importFile} />
+        disabled={controlsLocked || examResults.length === 0} onChange={importFile} />
       {comparison.filename ? <strong>{comparison.filename}</strong> : null}
     </div>
     {examResults.length === 0 ? <p class="form-text">Scan exams or resume saved work before importing a comparison.</p> : null}
@@ -154,28 +209,38 @@ export function ComparisonPanel({ comparison, setComparison, cfg, pdf, examResul
     {comparison.results ? <>
       <div class="comparison-panel__settings">
         {fields.map(([field, label]) => <label class="compact-check" key={field}>
-          <input type="checkbox" checked={comparison[field]} disabled={currentlyScanning}
+          <input type="checkbox" checked={comparison[field]} disabled={controlsLocked}
             onChange={event => setComparison(previous => ({ ...previous, [field]: event.target.checked }))} />{label}
         </label>)}
         <div class="field-group">
           <label htmlFor="comparison-first-page">CSV page 1 corresponds to PDF page</label>
-          <input id="comparison-first-page" type="number" min="1" step="1" value={comparison.cfg_firstPage} disabled={currentlyScanning}
+          <input id="comparison-first-page" type="number" min="1" step="1" value={comparison.cfg_firstPage} disabled={controlsLocked}
             onChange={event => setComparison(previous => ({ ...previous, cfg_firstPage: Number(event.target.value) }))} />
         </div>
-        <button type="button" class="btn btn-outline-primary" disabled={currentlyScanning || examResults.length === 0}
+        <button type="button" class="btn btn-primary" disabled={controlsLocked || examResults.length === 0}
           onClick={() => compare(comparison)}>Compare results</button>
       </div>
-      <p class="form-text">Changing these options takes effect with Compare results. Earlier choices are kept in your exam results.</p>
+      <p class="form-text">{cropRunning
+        ? 'Comparison settings are locked while images are prepared. Use Cancel to stop and change the settings.'
+        : !review ? 'CSV loaded. Choose the fields and page offset, then select Compare results.'
+          : 'Changing these options takes effect with Compare results. Earlier choices are kept in your exam results.'}</p>
     </> : null}
-    {review ? <>
+    {settingsChanged ? <p class="comparison-panel__notice" role="status">Settings changed. Choose Compare results to update the differences.</p> : null}
+    {review && !settingsChanged ? <>
       <div class="comparison-panel__summary" aria-live="polite">
         <strong>{review.matchedCount} papers compared · {pending.length} differences to review · {differences.length - pending.length} reviewed</strong>
         <label class="compact-check"><input type="checkbox" checked={showReviewed}
           onChange={event => { setShowReviewed(event.target.checked); setPage(0); }} />Show reviewed differences</label>
       </div>
-      {cropProgress && cropProgress.completed < cropProgress.total ? <p class="form-text" role="status">
-        Preparing comparison images: {cropProgress.completed} / {cropProgress.total}
-      </p> : null}
+      {cropRunning ? <div class="comparison-panel__image-progress">
+        <span class="form-text" role="status">Preparing comparison images: {cropProgress?.completed ?? 0} / {cropProgress?.total ?? missingImages.length}</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onClick={() => cancelPreparation()}>Cancel</button>
+      </div> : null}
+      {cropCancelled ? <p class="comparison-panel__notice" role="status">Image preparation cancelled. Prepared images and your corrections have been kept.</p> : null}
+      {!cropRunning && pdf && missingImages.length > 0 ? <button type="button" class="btn btn-sm btn-outline-primary comparison-panel__prepare-images"
+        disabled={controlsLocked} onClick={() => prepareImages(comparison)}>
+        {cropCancelled || missingImages.length < differences.length ? 'Prepare remaining images' : 'Prepare comparison images'}
+      </button> : null}
       {review.currentOnlyPages?.length > 0 ? <p class="comparison-panel__notice">No imported result for PDF pages {review.currentOnlyPages.join(', ')}. Your results are kept.</p> : null}
       {review.importedOnlyPages?.length > 0 ? <p class="comparison-panel__notice">Imported PDF pages {review.importedOnlyPages.join(', ')} have no current paper to compare.</p> : null}
       {review.ambiguousPages?.length > 0 ? <p class="comparison-panel__notice">More than one current paper has PDF page {review.ambiguousPages.join(', ')}; these pages were skipped.</p> : null}
@@ -185,9 +250,9 @@ export function ComparisonPanel({ comparison, setComparison, cfg, pdf, examResul
         const result = examResults[diff.i];
         if (!result || result.page !== diff.page) return null;
         return <Difference key={diff.id} diff={diff} crop={comparison.cropImages?.[diff.id]} cropError={cropErrors[diff.id]}
-          hasPdf={Boolean(pdf)} decision={isReviewed(diff)} cfg={cfg} result={result}
+          hasPdf={Boolean(pdf)} preparing={cropRunning} cancelled={cropCancelled} decision={isReviewed(diff)} cfg={cfg} result={result}
           onChoose={value => choose(diff, value)} onViewPage={onViewPage} onViewImage={onViewImage}
-          onRetryCrop={() => setCropRetry(value => value + 1)} />;
+          onRetryCrop={() => prepareImages(comparison)} />;
       })}
       {lastPage > 0 ? <div class="comparison-panel__pagination">
         <button type="button" class="btn btn-sm btn-outline-secondary" disabled={activePage === 0} onClick={() => setPage(activePage - 1)}>Previous differences</button>

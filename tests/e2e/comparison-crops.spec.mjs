@@ -95,6 +95,7 @@ test('every comparison field gets a saved crop without recognition or changing r
   await importOfficialResults(page, dataset);
 
   const panel = page.getByRole('region', { name: 'Compare another scan' });
+  await panel.getByRole('button', { name: 'Compare results', exact: true }).click();
   await expectAllCrops(panel);
   const expectedIds = ['1:studentNum', '1:surname', '1:initials', '1:answers:0', '1:answers:159'];
   for (const id of expectedIds) {
@@ -134,10 +135,99 @@ test('older results without saved alignment still receive approximate crops on b
   await importOfficialResults(page, dataset);
 
   const panel = page.getByRole('region', { name: 'Compare another scan' });
+  await panel.getByRole('button', { name: 'Compare results', exact: true }).click();
   await expectAllCrops(panel);
   const saved = await downloadDataset(page);
   expect(saved.examResults[0]).toEqual(dataset.examResults[0]);
   expect(Object.values(saved.comparison.cropImages)).toHaveLength(5);
   expect(Object.values(saved.comparison.cropImages).every(crop => crop.approximate)).toBe(true);
   await expect(panel.locator('[data-difference="1:answers:159"]')).toContainText('Approximate crop');
+});
+
+test('CSV import waits for configured fields and page mapping before comparing or preparing images', async ({ page }) => {
+  test.setTimeout(45_000);
+  await page.goto('/');
+  await page.locator('#pdf-upload').setInputFiles(fixturePath);
+  await expect(page.locator('.pdf-card__preview img')).toBeVisible();
+  await page.evaluate(() => {
+    window.__comparisonCropConversions = 0;
+    const original = OffscreenCanvas.prototype.convertToBlob;
+    OffscreenCanvas.prototype.convertToBlob = function (options) {
+      if (options?.type === 'image/jpeg') window.__comparisonCropConversions++;
+      return original.call(this, options);
+    };
+  });
+  const dataset = reviewedDataset();
+  dataset.twoSided = false;
+  dataset.examResults[0].page = 2;
+  dataset.examResults[0].answers = dataset.examResults[0].answers.slice(0, 40);
+  dataset.examResults[0].homographies = alignmentFor(sourcePages[1]);
+  delete dataset.examResults[0].homographies2;
+  await importDataset(page, dataset);
+  await importOfficialResults(page, dataset);
+
+  const panel = page.getByRole('region', { name: 'Compare another scan' });
+  await expect(panel.getByText('official-raw_results.csv', { exact: true })).toBeVisible();
+  await expect(panel.locator('.comparison-difference')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__comparisonCropConversions)).toBe(0);
+  await panel.getByLabel('CSV page 1 corresponds to PDF page').fill('2');
+  for (const name of ['Student numbers', 'Surnames', 'Initials']) await panel.getByLabel(name, { exact: true }).uncheck();
+  await expect(panel.getByLabel('Answers', { exact: true })).toBeChecked();
+  expect(await page.evaluate(() => window.__comparisonCropConversions)).toBe(0);
+
+  await panel.getByRole('button', { name: 'Compare results', exact: true }).click();
+  await expect(panel.locator('.comparison-difference')).toHaveCount(1);
+  const difference = panel.locator('[data-difference="2:answers:0"]');
+  await expect(difference.locator('img')).toBeVisible();
+  await expect(difference).toContainText('PDF page 2 · Answer 1');
+  expect(await page.evaluate(() => window.__comparisonCropConversions)).toBe(1);
+});
+
+test('explicit cancellation unlocks comparison settings and prevents late images reaching the next comparison', async ({ page }) => {
+  test.setTimeout(45_000);
+  await page.goto('/');
+  await page.locator('#pdf-upload').setInputFiles(fixturePath);
+  await expect(page.locator('.pdf-card__preview img')).toBeVisible();
+  const dataset = reviewedDataset();
+  await importDataset(page, dataset);
+  await importOfficialResults(page, dataset);
+  const panel = page.getByRole('region', { name: 'Compare another scan' });
+  await page.evaluate(() => {
+    const original = OffscreenCanvas.prototype.convertToBlob;
+    window.__heldComparisonCropStarted = false;
+    let cropConversions = 0;
+    OffscreenCanvas.prototype.convertToBlob = async function (options) {
+      if (options?.type !== 'image/jpeg' || ++cropConversions !== 2) return original.call(this, options);
+      const blob = await original.call(this, options);
+      window.__heldComparisonCropStarted = true;
+      return new Promise(resolve => { window.__releaseComparisonCrop = () => resolve(blob); });
+    };
+  });
+  await panel.getByRole('button', { name: 'Compare results', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__heldComparisonCropStarted)).toBe(true);
+  await expect(panel.getByLabel('Student numbers', { exact: true })).toBeDisabled();
+  await expect(panel.getByLabel('CSV page 1 corresponds to PDF page')).toBeDisabled();
+  await expect(panel.getByLabel('Import another scan for comparison')).toBeDisabled();
+  await expect(panel.getByRole('button', { name: 'Compare results', exact: true })).toBeDisabled();
+  await expect(panel.getByRole('button', { name: 'Remove comparison', exact: true })).toBeDisabled();
+  await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(panel.getByText('Image preparation cancelled. Prepared images and your corrections have been kept.', { exact: true })).toBeVisible();
+  await expect(panel.getByLabel('Student numbers', { exact: true })).toBeEnabled();
+  await expect(panel.getByLabel('CSV page 1 corresponds to PDF page')).toBeEnabled();
+  await expect(panel.getByRole('button', { name: 'Prepare remaining images', exact: true })).toBeVisible();
+  const cancelled = await downloadDataset(page);
+  expect(Object.keys(cancelled.comparison.cropImages)).toEqual(['1:studentNum']);
+  expect(cancelled.examResults[0]).toEqual(dataset.examResults[0]);
+  await panel.getByLabel('Student numbers', { exact: true }).uncheck();
+  await expect(panel.locator('.comparison-difference')).toHaveCount(0);
+  await expect(panel.getByText('Settings changed. Choose Compare results to update the differences.', { exact: true })).toBeVisible();
+  for (const name of ['Surnames', 'Initials']) await panel.getByLabel(name, { exact: true }).uncheck();
+  await panel.getByRole('button', { name: 'Compare results', exact: true }).click();
+  await expect(panel.locator('.comparison-difference')).toHaveCount(2);
+  await expect(panel.locator('.comparison-difference img')).toHaveCount(2);
+  await page.evaluate(() => window.__releaseComparisonCrop());
+  // A UI round trip lets a stale conversion finish, then the saved state proves it cannot write into the new comparison.
+  const saved = await downloadDataset(page);
+  expect(Object.keys(saved.comparison.cropImages).sort()).toEqual(['1:answers:0', '1:answers:159']);
+  expect(saved.examResults[0]).toEqual(dataset.examResults[0]);
 });

@@ -1553,6 +1553,15 @@ select {
   font-size: 0.8rem;
 }
 .comparison-panel__pagination { justify-content: end; margin-top: 14px; font-size: 0.8rem; }
+.comparison-panel__image-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.comparison-panel__image-progress .form-text { margin: 0; }
+.comparison-panel__prepare-images { margin-bottom: 12px; }
 
 .canvas-assignment {
   display: flex;
@@ -1912,6 +1921,7 @@ select {
 
 .setup-column .pdf-dropzone,
 .setup-column .pdf-dropzone__label {
+  height: auto;
   min-height: 350px;
 }
 
