@@ -18,7 +18,7 @@ export async function loadBrowserPdf(file) {
   return getDocument({ data }).promise;
 }
 
-async function renderPageToCanvas(pdf, pageNumber, scale) {
+export async function renderPdfPageCanvas(pdf, pageNumber, scale) {
   ensurePdfWorker();
   const page = await pdf.getPage(pageNumber);
   try {
@@ -36,11 +36,11 @@ async function renderPageToCanvas(pdf, pageNumber, scale) {
 }
 
 export async function renderPdfPageBitmap(pdf, pageNumber, scale = 4) {
-  const canvas = await renderPageToCanvas(pdf, pageNumber, scale);
+  const canvas = await renderPdfPageCanvas(pdf, pageNumber, scale);
   return createImageBitmap(canvas);
 }
 
 export async function renderPdfPagePreview(pdf, pageNumber, scale = 1) {
-  const canvas = await renderPageToCanvas(pdf, pageNumber, scale);
+  const canvas = await renderPdfPageCanvas(pdf, pageNumber, scale);
   return canvas.convertToBlob({ type: 'image/png' });
 }

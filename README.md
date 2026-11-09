@@ -43,6 +43,13 @@ For each difference, choose **Keep my result**, **Use imported result**, or
 enter a correction. Importing a comparison does not change any grades or student
 details until you make a choice. Missing pages are reported and kept as they are.
 
+Every difference gets a crop of the relevant answer or student-details field
+from the loaded source PDF, including the handwritten name and number boxes.
+This uses saved page alignment rather than running recognition again. Older
+datasets without alignment use the standard sheet layout and label those crops
+as approximate. The generated images are included in saved working datasets,
+so they remain available when resuming without the PDF.
+
 Download the **working dataset** to save your corrected exams, comparison
 decisions, and manual Canvas pairings. Resume that JSON file when continuing
 later; load the same source PDF to use paper previews and annotated PDF exports.

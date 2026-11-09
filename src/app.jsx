@@ -287,7 +287,7 @@ export function App() {
                   reportScanIssue('Could not create annotated PDF', error, result.page);
                 }
               }} />
-            <ComparisonPanel cfg={cfg} comparison={comparison} setComparison={setComparison} currentlyScanning={currentlyScanning}
+            <ComparisonPanel cfg={cfg} pdf={pdf} comparison={comparison} setComparison={setComparison} currentlyScanning={currentlyScanning}
               examResults={examResults} setExamResults={setExamResults}
               onViewPage={pdf ? ((page, title) => setViewer({ type: 'pdf', page, title })) : null}
               onViewImage={(src, title) => setViewer({ type: 'image', src, title })} />

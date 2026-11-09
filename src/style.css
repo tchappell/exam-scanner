@@ -743,6 +743,8 @@ select {
 .exam-row {
   display: grid;
   grid-template-columns: 4.25rem 3.25rem 7rem 13rem 4.5rem 4rem repeat(var(--qcount), 3.25rem);
+  width: max-content;
+  min-width: 100%;
   align-items: center;
   min-height: 2.35rem;
   border-bottom: 1px solid #edf0f5;
@@ -1533,7 +1535,23 @@ select {
 .comparison-panel__settings input[type="number"] { max-width: 220px; }
 .comparison-panel__summary { justify-content: space-between; margin: 18px 0 12px; font-size: 0.83rem; }
 .comparison-panel__notice { padding: 10px; background: #f7f3e7; font-size: 0.8rem; }
-.comparison-difference--text { grid-template-columns: 1fr; min-height: 0; }
+.comparison-difference .review-item__image--identity img {
+  display: block;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+.comparison-crop-placeholder {
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 18px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.8rem;
+}
 .comparison-panel__pagination { justify-content: end; margin-top: 14px; font-size: 0.8rem; }
 
 .canvas-assignment {
@@ -1882,6 +1900,7 @@ select {
 }
 
 .setup-column .pdf-card__preview {
+  height: 430px;
   min-height: 250px;
   border-right: 0;
   border-bottom: 1px solid var(--line);

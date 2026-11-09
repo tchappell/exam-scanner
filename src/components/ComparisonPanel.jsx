@@ -1,6 +1,7 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { normaliseAnswer } from '../examDomain.mjs';
 import { buildComparisonFromRows, buildComparisonReview } from '../services/comparisonImport.mjs';
+import { renderComparisonCrops } from '../services/comparisonCrops.mjs';
 import { updateExamResult } from '../services/resultState.mjs';
 import { loadCSV } from '../util/csv.mjs';
 
@@ -14,17 +15,24 @@ const fieldNames = { studentNum: 'Student number', surname: 'Surname', initials:
 const resultFields = { studentNum: 'student_number', surname: 'surname', initials: 'initials' };
 const displayValue = value => `${value ?? ''}`.trim() || '(blank)';
 
-function Difference({ diff, decision, cfg, result, onChoose, onViewPage, onViewImage }) {
+function Difference({ diff, crop, cropError, hasPdf, decision, cfg, result, onChoose, onViewPage, onViewImage, onRetryCrop }) {
   const current = diff.field === 'answers' ? result.answers[diff.idx] : result[resultFields[diff.field]];
   const physicalPage = result.page + (cfg.twoSided && diff.field === 'answers' && diff.idx >= 40 ? 1 : 0);
   const title = `PDF page ${physicalPage}${diff.field === 'answers' ? ` — question ${diff.idx + 1}` : ' — student details'}`;
-  return <article class={`review-item comparison-difference ${diff.img ? '' : 'comparison-difference--text'} ${decision ? 'is-actioned' : ''}`} data-difference={diff.id}>
-    {diff.img ? <button type="button" class="review-item__image" onClick={() => onViewImage?.(diff.img, title)}>
-      <img src={diff.img} alt={title} /><span>Enlarge crop</span>
-    </button> : null}
+  const image = crop?.src ?? diff.img;
+  const imageClass = `review-item__image${diff.field !== 'answers' ? ' review-item__image--identity' : ''}${diff.field === 'studentNum' ? ' review-item__image--student-number' : ''}`;
+  return <article class={`review-item comparison-difference ${decision ? 'is-actioned' : ''}`} data-difference={diff.id}>
+    {image ? <button type="button" class={imageClass} onClick={() => onViewImage?.(image, title)}>
+      <img src={image} alt={title} /><span>{crop?.approximate ? 'Approximate crop · enlarge' : 'Enlarge crop'}</span>
+    </button> : <div class={`${imageClass} comparison-crop-placeholder`}>
+      {!hasPdf ? <span>Load the source PDF to show this image.</span>
+        : cropError ? <><span>Could not prepare this image: {cropError}</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" onClick={onRetryCrop}>Retry image</button></>
+          : <span role="status">Preparing comparison image…</span>}
+    </div>}
     <div class="review-item__body">
       <div class="review-item__heading">
-        <p class="review-item__location">PDF page {result.page} · {fieldNames[diff.field]}{diff.field === 'answers' ? ` ${diff.idx + 1}` : ''}</p>
+        <p class="review-item__location">PDF page {physicalPage} · {fieldNames[diff.field]}{diff.field === 'answers' ? ` ${diff.idx + 1}` : ''}</p>
         {onViewPage ? <button type="button" onClick={() => onViewPage(physicalPage, title)}>View PDF page</button> : null}
       </div>
       <div class="review-comparison-values">
@@ -45,10 +53,13 @@ function Difference({ diff, decision, cfg, result, onChoose, onViewPage, onViewI
   </article>;
 }
 
-export function ComparisonPanel({ comparison, setComparison, cfg, examResults, setExamResults, currentlyScanning, onViewPage, onViewImage }) {
+export function ComparisonPanel({ comparison, setComparison, cfg, pdf, examResults, setExamResults, currentlyScanning, onViewPage, onViewImage }) {
   const [error, setError] = useState(null);
   const [showReviewed, setShowReviewed] = useState(false);
   const [page, setPage] = useState(0);
+  const [cropProgress, setCropProgress] = useState(null);
+  const [cropErrors, setCropErrors] = useState({});
+  const [cropRetry, setCropRetry] = useState(0);
   const review = comparison.review;
   const decisions = comparison.decisions ?? {};
   const differences = review?.diffs ?? [];
@@ -63,13 +74,38 @@ export function ComparisonPanel({ comparison, setComparison, cfg, examResults, s
   const lastPage = Math.max(0, Math.ceil(visible.length / 30) - 1);
   const activePage = Math.min(page, lastPage);
 
+  useEffect(() => {
+    setCropErrors({});
+    setCropProgress(null);
+    if (!pdf || !review || currentlyScanning) return undefined;
+    const missing = review.diffs.filter(diff => !(diff.img || comparison.cropImages?.[diff.id]?.src));
+    if (missing.length === 0) return undefined;
+    const controller = new AbortController();
+    renderComparisonCrops({
+      pdf, differences: missing, examResults, signal: controller.signal,
+      onCrop: (id, crop) => setComparison(previous => {
+        if (controller.signal.aborted || previous.review !== review) return previous;
+        return { ...previous, cropImages: { ...previous.cropImages, [id]: crop } };
+      }),
+      onError: (id, caught) => {
+        if (!controller.signal.aborted) setCropErrors(previous => ({ ...previous, [id]: caught.message ?? `${caught}` }));
+      },
+      onProgress: progress => {
+        if (!controller.signal.aborted) setCropProgress(progress);
+      }
+    }).catch(caught => {
+      if (!controller.signal.aborted) setCropErrors(Object.fromEntries(missing.map(diff => [diff.id, caught.message ?? `${caught}`])));
+    });
+    return () => controller.abort();
+  }, [pdf, review, currentlyScanning, cropRetry]);
+
   const compare = source => {
     const nextReview = buildComparisonReview(examResults, source, cfg);
     if (nextReview.error) {
       setError(nextReview.error);
       return;
     }
-    setComparison({ ...source, review: nextReview, decisions: {} });
+    setComparison({ ...source, review: nextReview, decisions: {}, cropImages: {} });
     setPage(0);
     setError(null);
   };
@@ -137,6 +173,9 @@ export function ComparisonPanel({ comparison, setComparison, cfg, examResults, s
         <label class="compact-check"><input type="checkbox" checked={showReviewed}
           onChange={event => { setShowReviewed(event.target.checked); setPage(0); }} />Show reviewed differences</label>
       </div>
+      {cropProgress && cropProgress.completed < cropProgress.total ? <p class="form-text" role="status">
+        Preparing comparison images: {cropProgress.completed} / {cropProgress.total}
+      </p> : null}
       {review.currentOnlyPages?.length > 0 ? <p class="comparison-panel__notice">No imported result for PDF pages {review.currentOnlyPages.join(', ')}. Your results are kept.</p> : null}
       {review.importedOnlyPages?.length > 0 ? <p class="comparison-panel__notice">Imported PDF pages {review.importedOnlyPages.join(', ')} have no current paper to compare.</p> : null}
       {review.ambiguousPages?.length > 0 ? <p class="comparison-panel__notice">More than one current paper has PDF page {review.ambiguousPages.join(', ')}; these pages were skipped.</p> : null}
@@ -145,8 +184,10 @@ export function ComparisonPanel({ comparison, setComparison, cfg, examResults, s
       {visible.slice(activePage * 30, (activePage + 1) * 30).map(diff => {
         const result = examResults[diff.i];
         if (!result || result.page !== diff.page) return null;
-        return <Difference key={diff.id} diff={diff} decision={isReviewed(diff)} cfg={cfg} result={result}
-          onChoose={value => choose(diff, value)} onViewPage={onViewPage} onViewImage={onViewImage} />;
+        return <Difference key={diff.id} diff={diff} crop={comparison.cropImages?.[diff.id]} cropError={cropErrors[diff.id]}
+          hasPdf={Boolean(pdf)} decision={isReviewed(diff)} cfg={cfg} result={result}
+          onChoose={value => choose(diff, value)} onViewPage={onViewPage} onViewImage={onViewImage}
+          onRetryCrop={() => setCropRetry(value => value + 1)} />;
       })}
       {lastPage > 0 ? <div class="comparison-panel__pagination">
         <button type="button" class="btn btn-sm btn-outline-secondary" disabled={activePage === 0} onClick={() => setPage(activePage - 1)}>Previous differences</button>
