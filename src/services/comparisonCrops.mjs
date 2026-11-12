@@ -23,11 +23,11 @@ function dataUrl(blob, signal) {
     };
     reader.onerror = () => {
       cleanup();
-      reject(new Error('Could not store the comparison crop.'));
+      reject(new Error('Could not store the crop.'));
     };
     reader.onabort = () => {
       cleanup();
-      reject(new DOMException('Comparison image preparation cancelled.', 'AbortError'));
+      reject(new DOMException('Image preparation cancelled.', 'AbortError'));
     };
     signal?.addEventListener('abort', abort, { once: true });
     reader.readAsDataURL(blob);

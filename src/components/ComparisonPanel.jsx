@@ -46,7 +46,7 @@ function Difference({ diff, crop, cropError, hasPdf, preparing, cancelled, decis
   return <article class={`review-item comparison-difference ${decision ? 'is-actioned' : ''}`} data-difference={diff.id}>
     {image ? <button type="button" class={imageClass} onClick={() => onViewImage?.(image, title)}>
       <img src={image} alt={title} /><span>{crop?.approximate ? 'Approximate crop · enlarge' : 'Enlarge crop'}</span>
-    </button> : <div class={`${imageClass} comparison-crop-placeholder`}>
+    </button> : <div class={`${imageClass} review-crop-placeholder`}>
       {!hasPdf ? <span>Load the source PDF to show this image.</span>
         : cropError ? <><span>Could not prepare this image: {cropError}</span>
           <button type="button" class="btn btn-sm btn-outline-secondary" disabled={preparing} onClick={onRetryCrop}>Retry image</button></>

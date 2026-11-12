@@ -80,3 +80,35 @@ test('restored references cannot attach one PDF to multiple source IDs', () => {
     pdfSources: [original, { ...late, hash: original.hash }], examResults: []
   }, [original]), /PDF reference is invalid or duplicated/);
 });
+
+test('questionable answers retain review decisions and drop reacquirable crops', () => {
+  const { pdf, ...source } = original;
+  const rawAnswer = { scanned_value: 'A', questionable: true, reviewed: true };
+  const rawWithCrop = { ...rawAnswer, questionableImg: 'data:image/jpeg;base64,AA==' };
+  const dataset = buildWorkingDataset({
+    config: { twoSided: false },
+    examResults: [{ ...correctedResult, sourceId: source.id, raw_answers: [rawWithCrop] }],
+    pdfSources: [source]
+  });
+
+  assert.deepEqual(dataset.examResults[0].raw_answers, [rawAnswer]);
+  assert.deepEqual(rawWithCrop.questionableImg, 'data:image/jpeg;base64,AA==');
+
+  const restored = readWorkingDataset(JSON.parse(JSON.stringify(dataset)), [original]);
+  assert.deepEqual(restored.examResults[0].raw_answers, [rawAnswer]);
+  assert.equal(restored.examResults[0].answers[0], 'B');
+});
+
+test('legacy embedded crops restore missing questionable flags without overriding explicit flags', () => {
+  const crop = 'data:image/jpeg;base64,AA==';
+  const rawAnswers = [
+    { scanned_value: 'A', questionableImg: crop },
+    { scanned_value: 'B', questionable: false, questionableImg: crop },
+    { scanned_value: 'C' }
+  ];
+  const restored = readWorkingDataset({ examResults: [{ ...correctedResult, raw_answers: rawAnswers }] });
+  const expected = [{ ...rawAnswers[0], questionable: true }, ...rawAnswers.slice(1)];
+
+  assert.deepEqual(restored.examResults[0].raw_answers, expected);
+  assert.deepEqual(buildWorkingDataset(restored).examResults[0].raw_answers, expected);
+});

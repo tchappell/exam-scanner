@@ -12,10 +12,15 @@ function sourceMetadata({ id, name, hash, numPages, scanConfig }) {
 }
 
 export function buildWorkingDataset({ config, examResults, pdfSources, comparison }) {
+  const recoverableSources = new Set(pdfSources.filter(source => source.hash).map(source => source.id));
   const savedResults = examResults.map(result => ({
     ...result,
     diffs: [],
-    raw_answers: (result.raw_answers ?? []).map(({ questionable, ...raw }) => raw)
+    raw_answers: (result.raw_answers ?? []).map(answer => {
+      if (!answer?.questionableImg || !recoverableSources.has(result.sourceId)) return answer;
+      const { questionableImg, ...raw } = answer;
+      return raw;
+    })
   }));
   return {
     pdfSources: pdfSources.map(sourceMetadata),
@@ -82,6 +87,14 @@ export function readWorkingDataset(dataset, loadedPdfSources = []) {
   const examResults = dataset.examResults.map(result => {
     if (!result || typeof result !== 'object') throw new Error('The dataset contains an invalid exam result.');
     const loaded = { ...result, answers: fixAnswers(config, result.answers ?? []) };
+    if (Array.isArray(result.raw_answers)) {
+      // Older exports kept the crop while dropping the flag that added the answer to the review queue.
+      loaded.raw_answers = result.raw_answers.map(answer => (
+        typeof answer?.questionableImg === 'string' && answer.questionableImg && !Object.hasOwn(answer, 'questionable')
+          ? { ...answer, questionable: true }
+          : answer
+      ));
+    }
     if (legacySource) {
       loaded.sourceId = legacySource.id;
       if (!dataset.pdfHash) {

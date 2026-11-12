@@ -74,9 +74,10 @@ corrections are kept. You can prepare the remaining images, or change the
 settings and select **Compare results** again. Restored comparisons with missing
 images wait for **Prepare comparison images** rather than starting automatically.
 
-Download the **working dataset** to save your corrected exams, comparison
-decisions, and manual Canvas pairings. The JSON saves the PDF references for
-each batch so you can continue the review later.
+Download the **working dataset** to save your corrected exams, questionable
+scans and their review status, comparison decisions, and manual Canvas
+pairings. When you resume, the questionable-scan queue is available immediately.
+Reload the original PDFs to rebuild missing crops from the saved page alignment.
 
 ### Match papers to Canvas students
 

@@ -369,7 +369,7 @@ export function App() {
               onViewImage={(src, title) => setViewer({ type: 'image', src, title })} />
             <QuestionableReview cfg={cfg} setCfg={setCfg}
               examResults={examResults} setExamResults={setExamResults} pdfSources={pdfSources}
-              canViewPage={canViewPage} onViewPage={viewPage}
+              busy={busy} onViewPage={viewPage}
               onViewImage={(src, title) => setViewer({ type: 'image', src, title })} />
             <ExamAnalysis examResults={examResults} cfg={cfg} />
           </WorkspaceSection>
