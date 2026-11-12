@@ -2,6 +2,30 @@ import cvReadyPromise from "@techstark/opencv-js";
 import predictor from './predictor2';
 
 const ORB_FEATURES = 500;
+const ORB_RETRY_FEATURES = 1500;
+
+function grayMatFromBitmap(cv, bitmap) {
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let original;
+  try {
+    ctx.drawImage(bitmap, 0, 0);
+    original = cv.matFromImageData(ctx.getImageData(0, 0, bitmap.width, bitmap.height));
+    const gray = new cv.Mat();
+    try {
+      cv.cvtColor(original, gray, cv.COLOR_BGR2GRAY);
+      return gray;
+    } catch (error) {
+      gray.delete();
+      throw error;
+    }
+  } finally {
+    original?.delete();
+    canvas.width = 0;
+    canvas.height = 0;
+    bitmap.close();
+  }
+}
 
 const loadTemplateImages = async () => {
   const templatePaths = [
@@ -12,30 +36,10 @@ const loadTemplateImages = async () => {
   for (const templatePath of templatePaths) {
     const res = await fetch(templatePath, { mode: 'cors' });
     const blob = await res.blob();
-    const bitmap = await createImageBitmap(blob);
-
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(bitmap, 0, 0);
-
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
     const cv = await cvReadyPromise;
-    const mat_original = cv.matFromImageData(imageData);
-    const mat = new cv.Mat();
-    cv.cvtColor(mat_original, mat, cv.COLOR_BGR2GRAY);
-    mat_original.delete();
+    const mat = grayMatFromBitmap(cv, await createImageBitmap(blob));
 
-    const orb = new cv.ORB(ORB_FEATURES);
-    const kp = new cv.KeyPointVector();
-    const des = new cv.Mat();
-    const mask = new cv.Mat();
-    orb.detectAndCompute(mat, mask, kp, des);
-    orb.delete();
-    mask.delete();
-
-    const templateImage = { mat, kp, des };
-    templateImages.push(templateImage);
+    templateImages.push({ mat, ...detectOrbFeatures(cv, mat, ORB_FEATURES) });
   }
   return templateImages;
 };
@@ -48,18 +52,8 @@ const loadPredict = async (path) => {
 const loadImage = async (path) => {
   const res = await fetch(path, { mode: 'cors' });
   const blob = await res.blob();
-  const bitmap = await createImageBitmap(blob);
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(bitmap, 0, 0);
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const cv = await cvReadyPromise;
-  const num_mask_mat = new cv.Mat();
-  const mat_original = cv.matFromImageData(imageData);
-
-  cv.cvtColor(mat_original, num_mask_mat, cv.COLOR_BGR2GRAY);
-  mat_original.delete();
-  return num_mask_mat;
+  return grayMatFromBitmap(cv, await createImageBitmap(blob));
 };
 
 const templateImagesPromise = loadTemplateImages();
@@ -169,138 +163,141 @@ const transformPoint = (pt, H) => {
   return [xPrime / wPrime, yPrime / wPrime];
 }
 
-// This function is largely copy-pasted from warpPdfPageLinear
-const createProjectionMatrices = async (bmp, templatePage) => {
-  const cv = await cvReadyPromise;
-  const templateImages = await templateImagesPromise;
+class PageAlignmentError extends Error {}
 
-  const template = templateImages[templatePage];
-  // These objects will need to be cleaned up
-  const mat = new cv.Mat();
-  const bf = new cv.BFMatcher(cv.NORM_HAMMING, false);
-  const orb = new cv.ORB(ORB_FEATURES);
+function fitAlignment(cv, sourcePoints, templatePoints, inliers, label) {
+  const count = sourcePoints.length / 2;
+  if (count < 4) throw new PageAlignmentError(`Too few matches for ${label}.`);
+  const source = cv.matFromArray(count, 1, cv.CV_32FC2, sourcePoints);
+  const target = cv.matFromArray(count, 1, cv.CV_32FC2, templatePoints);
+  try {
+    const matrix = cv.findHomography(source, target, cv.RANSAC, 3, inliers);
+    if (matrix.data64F.length === 9 && matrix.data64F.every(Number.isFinite)) return matrix;
+    matrix.delete();
+    throw new PageAlignmentError(`Could not fit a transform for ${label}.`);
+  } finally {
+    source.delete();
+    target.delete();
+  }
+}
+
+function invertAlignment(cv, matrix, inverse, label) {
+  if (!cv.invert(matrix, inverse, cv.DECOMP_LU)
+    || inverse.data64F.length !== 9 || !inverse.data64F.every(Number.isFinite)) {
+    throw new PageAlignmentError(`Could not invert the transform for ${label}.`);
+  }
+  return Array.from(inverse.data64F);
+}
+
+function requireMatchCoverage(points, inliers, minCount, minWidth, minHeight, label) {
+  const inlierFlags = inliers.data;
+  let count = 0;
+  let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
+  for (let index = 0; index < inlierFlags.length; index++) {
+    if (!inlierFlags[index]) continue;
+    const x = points[index * 2];
+    const y = points[index * 2 + 1];
+    left = Math.min(left, x);
+    right = Math.max(right, x);
+    top = Math.min(top, y);
+    bottom = Math.max(bottom, y);
+    count++;
+  }
+  if (count < minCount || right - left < minWidth || bottom - top < minHeight) {
+    throw new PageAlignmentError(`Matches did not cover enough of ${label}.`);
+  }
+}
+
+function detectOrbFeatures(cv, mat, featureCount) {
+  const orb = new cv.ORB(featureCount);
   const kp = new cv.KeyPointVector();
-  const knn = new cv.DMatchVectorVector();
   const des = new cv.Mat();
   const mask = new cv.Mat();
-  const inlierMask = new cv.Mat();
-  const wmat = new cv.Mat();
-  const circlesMat = new cv.Mat();
-  const Hfinal = new cv.Mat(3, 3, cv.CV_32FC1);
-  const Hblank = new cv.Mat();
-  const Hinvert = new cv.Mat();
-  const homographies = [];
-
   try {
-    const canvas = new OffscreenCanvas(bmp.width, bmp.height);
-    let ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(bmp, 0, 0);
-    const imageData = ctx.getImageData(0, 0, bmp.width, bmp.height);
-    ctx = null;
-    canvas.width = 0; canvas.height = 0;
-    const mat_original = cv.matFromImageData(imageData);
-    cv.cvtColor(mat_original, mat, cv.COLOR_BGR2GRAY);
-    mat_original.delete();
-    const pdfScale = mat.rows / 3508;
-    //console.log("SIZE", mat.cols, mat.rows);
-
-    // Compute ORB features
     orb.detectAndCompute(mat, mask, kp, des);
+    return { kp, des };
+  } catch (error) {
+    kp.delete();
+    des.delete();
+    throw error;
+  } finally {
     orb.delete();
     mask.delete();
+  }
+}
 
-    // Now match features against the template
-    bf.knnMatch(template.des, des, knn, 2);
-    const pts1 = [], pts2 = [];
-    for (let i = 0; i < knn.size(); i++) {
-      const dmatch = knn.get(i);
-
-      const m = dmatch.get(0);
-      const n = dmatch.get(1);
-      if (m.distance < 0.75 * n.distance) {
-        const p1 = template.kp.get(m.queryIdx).pt;
-        const p2 = kp.get(m.trainIdx).pt;
-        pts1.push(p1.x, p1.y);
-        pts2.push(p2.x, p2.y);
+function estimatePageAlignment(cv, mat, template, inverse, inliers, retry) {
+  const featureCount = retry ? ORB_RETRY_FEATURES : ORB_FEATURES;
+  if (retry) template.retryFeatures ??= detectOrbFeatures(cv, template.mat, featureCount);
+  const reference = retry ? template.retryFeatures : template;
+  const { kp, des } = detectOrbFeatures(cv, mat, featureCount);
+  const matcher = new cv.BFMatcher(cv.NORM_HAMMING, false);
+  const matches = new cv.DMatchVectorVector();
+  const targetPoints = [], sourcePoints = [];
+  try {
+    matcher.knnMatch(reference.des, des, matches, 2);
+    for (let i = 0; i < matches.size(); i++) {
+      const candidates = matches.get(i);
+      try {
+        if (candidates.size() < 2) continue;
+        const first = candidates.get(0);
+        const second = candidates.get(1);
+        if (first.distance >= 0.75 * second.distance) continue;
+        const target = reference.kp.get(first.queryIdx).pt;
+        const source = kp.get(first.trainIdx).pt;
+        targetPoints.push(target.x, target.y);
+        sourcePoints.push(source.x, source.y);
+      } finally {
+        candidates.delete();
       }
-      dmatch.delete();
     }
-
-    let points1 = cv.matFromArray(pts1.length / 2, 1, cv.CV_32FC2, pts1);
-    let points2 = cv.matFromArray(pts2.length / 2, 1, cv.CV_32FC2, pts2);
-
-    const H = cv.findHomography(points2, points1, cv.RANSAC, 3.0, inlierMask);
-    const transH = [...H.data64F];
-    cv.invert(H, Hinvert, cv.DECOMP_LU);
-    const invH = [...Hinvert.data64F];
-
+    const matrix = fitAlignment(cv, sourcePoints, targetPoints, inliers, 'the page');
     try {
-      cv.GaussianBlur(mat, wmat, new cv.Size(5, 5), 0);
-      // Hough circles
-      cv.HoughCircles(
-        wmat,
-        circlesMat,
-        cv.HOUGH_GRADIENT,
-        1, // dp
-        15, // minDist
-        40, // param1 (higher threshold for Canny edge detector)
-        28, // param2 (accumulator threshold)
-        18*pdfScale, // minRadius (we are after circles with rad 22.5)
-        27*pdfScale  // maxRadius
-      );
-      const circles = [];
-      for (let i = 0; i < circlesMat.cols; ++i) {
-        let x = circlesMat.data32F[i * 3];
-        let y = circlesMat.data32F[i * 3 + 1];
-        let radius = circlesMat.data32F[i * 3 + 2];
-        circles.push([x, y, radius]);
-      }
+      if (retry) requireMatchCoverage(targetPoints, inliers, 12, template.mat.cols / 4, template.mat.rows / 4, 'the page');
+      return invertAlignment(cv, matrix, inverse, 'the page');
+    } finally {
+      matrix.delete();
+    }
+  } finally {
+    matcher.delete();
+    matches.delete();
+    kp.delete();
+    des.delete();
+  }
+}
 
-      const sqrSearchRadius = Math.pow(25*pdfScale, 2);
-      points1.delete(); points2.delete();
-      let next_global_drift_x = 0, next_global_drift_y = 0;
-      for (let li = 0; li < known_lattices[templatePage].length; li++) {
-        const global_drift_x = next_global_drift_x;
-        const global_drift_y = next_global_drift_y;
-        next_global_drift_x = 0;
-        next_global_drift_y = 0;
-        pts1.length = 0; pts2.length = 0;
+function alignAnswerGrids(cv, mat, template, templatePage, circles, pdfScale, matOut, retry) {
+  const inverse = new cv.Mat();
+  const inlierMask = new cv.Mat();
+  const homographies = [];
+  const pts1 = [], pts2 = [];
+  try {
+    const invH = estimatePageAlignment(cv, mat, template, inverse, inlierMask, retry);
+    const sqrSearchRadius = Math.pow(25 * pdfScale, 2);
+    let next_global_drift_x = 0, next_global_drift_y = 0;
+    for (let li = 0; li < known_lattices[templatePage].length; li++) {
+      const global_drift_x = next_global_drift_x;
+      const global_drift_y = next_global_drift_y;
+      next_global_drift_x = 0;
+      next_global_drift_y = 0;
 
-        const lattice = known_lattices[templatePage][li];
-        let rect_x = lattice.xstart - 30;
-        let rect_y = lattice.ystart - 30;
-        let rect_w = Math.floor(lattice.xstep * (lattice.cols - 1)) + 60;
-        let rect_h = Math.floor(lattice.ystep * (lattice.rows - 1)) + 60;
+      pts1.length = 0; pts2.length = 0;
 
-        if (templatePage === 0) {
-          if (li < 3) {
-            // Add 180 to the top, to include letter fields and label
-            rect_y -= 180;
-            rect_h += 180;
+      const lattice = known_lattices[templatePage][li];
+      let rect_x = lattice.xstart - 30;
+      let rect_y = lattice.ystart - 30;
+      let rect_w = Math.floor(lattice.xstep * (lattice.cols - 1)) + 60;
+      let rect_h = Math.floor(lattice.ystep * (lattice.rows - 1)) + 60;
 
-            // If this is the student number box, add 800 to the bottom to get unit, signature, date
-            if (li === 0) {
-              rect_h += 800;
-            }
-          } else {
-            // Add 60 to the top, 50 to the bottom
-            rect_y -= 60;
-            rect_h += 60 + 50;
+      if (templatePage === 0) {
+        if (li < 3) {
+          // Add 180 to the top, to include letter fields and label
+          rect_y -= 180;
+          rect_h += 180;
 
-            // 80 to the left and 70 to the right
-            rect_x -= 80;
-            rect_w += 80 + 70;
-
-            // If this is the leftmost box, stretch it out to the left edge
-            if (li === 3) {
-              rect_w += rect_x;
-              rect_x = 0;
-            }
-            // If this is the rightmost box, stretch it out to the right edge
-            if (li === 6) {
-              const add = 2479 - rect_w - rect_x;
-              rect_w += add;
-            }
+          // If this is the student number box, add 800 to the bottom to get unit, signature, date
+          if (li === 0) {
+            rect_h += 800;
           }
         } else {
           // Add 60 to the top, 50 to the bottom
@@ -311,503 +308,222 @@ const createProjectionMatrices = async (bmp, templatePage) => {
           rect_x -= 80;
           rect_w += 80 + 70;
 
-          // If this is a left box, stretch it out to the left edge
-          if (li < 3) {
+          // If this is the leftmost box, stretch it out to the left edge
+          if (li === 3) {
             rect_w += rect_x;
             rect_x = 0;
           }
-          // If this is a right box, stretch it out to the right edge
-          if (li >= 9) {
+          // If this is the rightmost box, stretch it out to the right edge
+          if (li === 6) {
             const add = 2479 - rect_w - rect_x;
             rect_w += add;
           }
         }
+      } else {
+        // Add 60 to the top, 50 to the bottom
+        rect_y -= 60;
+        rect_h += 60 + 50;
 
-        let { xstart, ystart } = lattice;
-        let y = ystart;
-        let xoffset_outer = global_drift_x;
-        let yoffset_outer = global_drift_y;
+        // 80 to the left and 70 to the right
+        rect_x -= 80;
+        rect_w += 80 + 70;
 
-        for (let row = 0; row < lattice.rows; row++) {
-          let x = xstart;
-          let xoffset_inner = 0;
-          let yoffset_inner = 0;
+        // If this is a left box, stretch it out to the left edge
+        if (li < 3) {
+          rect_w += rect_x;
+          rect_x = 0;
+        }
+        // If this is a right box, stretch it out to the right edge
+        if (li >= 9) {
+          const add = 2479 - rect_w - rect_x;
+          rect_w += add;
+        }
+      }
 
-          for (let col = 0; col < lattice.cols; col++) {
-            // Search for circle within threshold radius, take closest
-            let closest_circle = null;
-            let closest_dist = Infinity;
-            let [xts, yts] = transformPoint([x, y], invH);
-            xts += xoffset_outer + xoffset_inner;
-            yts += yoffset_outer + yoffset_inner;
+      let { xstart, ystart } = lattice;
+      let y = ystart;
+      let xoffset_outer = global_drift_x;
+      let yoffset_outer = global_drift_y;
 
-            for (const circle of circles) {
-              let sqrdist = Math.pow(xts - circle[0], 2) +
-                Math.pow(yts - circle[1], 2);
-              if (sqrdist < closest_dist) {
-                closest_dist = sqrdist;
-                closest_circle = circle;
-              }
-            }
-            if (closest_dist < sqrSearchRadius) {
-              // Set offset to match circle
-              if (col === 0) {
-                xoffset_outer += closest_circle[0] - xts;
-                yoffset_outer += closest_circle[1] - yts;
-              } else {
-                xoffset_inner += closest_circle[0] - xts;
-                yoffset_inner += closest_circle[1] - yts;
-              }
-              // Add points
-              pts1.push(x, y);
-              pts2.push(closest_circle[0], closest_circle[1]);
-              //console.log([x, y], "->", closest_circle.slice(0,2));
-              //cv.circle(wmat, new cv.Point(closest_circle[0], closest_circle[1]), 20, color, -1);
-            }
-            x += lattice.xstep;
+      for (let row = 0; row < lattice.rows; row++) {
+        let x = xstart;
+        let xoffset_inner = 0;
+        let yoffset_inner = 0;
 
-            // If this is the last column of the first row
-            // and if the next lattice is horizontally to the right
-            // set the next global drift here
-            if (templatePage === 0) {
-              if (row === 0 && col === lattice.cols - 1 && li !== 2 && li !== 6) {
-                next_global_drift_x = xoffset_inner + xoffset_outer;
-                next_global_drift_y = yoffset_inner + yoffset_outer;
-              }
-            } else {
-              if (row === 0 && col === lattice.cols - 1 && li < 9) {
-                next_global_drift_x = xoffset_inner + xoffset_outer;
-                next_global_drift_y = yoffset_inner + yoffset_outer;
-              }
+        for (let col = 0; col < lattice.cols; col++) {
+          // Search for circle within threshold radius, take closest
+          let closest_circle = null;
+          let closest_dist = Infinity;
+          let [xts, yts] = transformPoint([x, y], invH);
+          xts += xoffset_outer + xoffset_inner;
+          yts += yoffset_outer + yoffset_inner;
+
+          for (const circle of circles) {
+            let sqrdist = Math.pow(xts - circle[0], 2) +
+              Math.pow(yts - circle[1], 2);
+            if (sqrdist < closest_dist) {
+              closest_dist = sqrdist;
+              closest_circle = circle;
             }
           }
-          y += lattice.ystep;
-        }
+          if (closest_dist < sqrSearchRadius) {
+            // Set offset to match circle
+            if (col === 0) {
+              xoffset_outer += closest_circle[0] - xts;
+              yoffset_outer += closest_circle[1] - yts;
+            } else {
+              xoffset_inner += closest_circle[0] - xts;
+              yoffset_inner += closest_circle[1] - yts;
+            }
+            // Add points
+            pts1.push(x, y);
+            pts2.push(closest_circle[0], closest_circle[1]);
+          }
+          x += lattice.xstep;
 
-        points1 = cv.matFromArray(pts1.length / 2, 1, cv.CV_32FC2, pts1);
-        points2 = cv.matFromArray(pts2.length / 2, 1, cv.CV_32FC2, pts2);
-        let H2 = cv.findHomography(points2, points1, cv.RANSAC, 3.0, inlierMask);
-        cv.invert(H2, Hinvert, cv.DECOMP_LU);
-        const srcCorners = cv.matFromArray(2, 1, cv.CV_32FC2, [rect_x, rect_y, rect_x + rect_w, rect_y + rect_h]);
-        const dstCorners = new cv.Mat();
-        cv.perspectiveTransform(srcCorners, dstCorners, Hinvert);
-        let o_rect_x = dstCorners.data32F[0];
-        let o_rect_y = dstCorners.data32F[1];
-        let o_rect_w = dstCorners.data32F[2] - o_rect_x;
-        let o_rect_h = dstCorners.data32F[3] - o_rect_y;
-        srcCorners.delete(); dstCorners.delete();
-        let [prev_rect_x, prev_rect_y, prev_rect_w, prev_rect_h] = [rect_x, rect_y, rect_w, rect_h];
-        if (o_rect_x < 0) {
-          const scale = rect_w / o_rect_w;
-          o_rect_w += o_rect_x; // o_rect_x is negative so this subtracts
-
-          rect_w += o_rect_x * scale;
-          rect_x -= o_rect_x * scale; // o_rect_x is negative so this adds
-          o_rect_x = 0;
-        }
-        if (o_rect_y < 0) {
-          const scale = rect_h / o_rect_h;
-          o_rect_h += o_rect_y;
-          rect_h += o_rect_y * scale;
-          rect_y -= o_rect_y * scale;
-          o_rect_y = 0;
-        }
-        if (o_rect_x + o_rect_w > mat.cols) {
-          const scale = rect_w / o_rect_w;
-          const over = o_rect_x + o_rect_w - mat.cols;
-          o_rect_w -= over;
-          rect_w -= over * scale;
-        }
-        if (o_rect_y + o_rect_h > mat.rows) {
-          const scale = rect_h / o_rect_h;
-          const over = o_rect_y + o_rect_h - mat.rows;
-          o_rect_h -= over;
-          rect_h -= over * scale;
-        }
-
-        points1.delete(); points2.delete();
-        for (let i = 0; i < pts1.length / 2; i++) {
-          pts1[i * 2 + 0] -= rect_x;
-          pts1[i * 2 + 1] -= rect_y;
-        }
-        points1 = cv.matFromArray(pts1.length / 2, 1, cv.CV_32FC2, pts1);
-        points2 = cv.matFromArray(pts2.length / 2, 1, cv.CV_32FC2, pts2);
-
-        H2.delete();
-        H2 = cv.findHomography(points2, points1, cv.RANSAC, 3.0, inlierMask);
-
-        cv.invert(H2, Hinvert, cv.DECOMP_LU);
-        homographies.push({
-          rect_x: prev_rect_x,
-          rect_y: prev_rect_y,
-          rect_w: prev_rect_w,
-          rect_h: prev_rect_h,
-          matrix: Array.from(Hinvert.data64F)
-        });
-
-        points1.delete(); points2.delete();
-        H2.delete();
-      }
-
-    } finally { H.delete(); }
-  } finally {
-    bf.delete(); knn.delete(); kp.delete(); des.delete(); wmat.delete();
-    Hinvert.delete(); Hfinal.delete(); Hblank.delete();
-    inlierMask.delete();
-    circlesMat.delete();
-    mat.delete();
-  }
-  return homographies;
-};
-
-const warpPdfPageLinear = async (bmp, templatePage) => {
-  const cv = await cvReadyPromise;
-  const templateImages = await templateImagesPromise;
-
-  const template = templateImages[templatePage];
-  // These objects will need to be cleaned up
-  const mat = new cv.Mat();
-  const matOut = template.mat.mat_clone();
-  const bf = new cv.BFMatcher(cv.NORM_HAMMING, false);
-  const orb = new cv.ORB(ORB_FEATURES);
-  const kp = new cv.KeyPointVector();
-  const knn = new cv.DMatchVectorVector();
-  const des = new cv.Mat();
-  const mask = new cv.Mat();
-  const inlierMask = new cv.Mat();
-  const wmat = new cv.Mat();
-  const circlesMat = new cv.Mat();
-  const Hfinal = new cv.Mat(3, 3, cv.CV_32FC1);
-  const Hblank = new cv.Mat();
-  const Hinvert = new cv.Mat();
-  const homographies = [];
-
-  try {
-    const canvas = new OffscreenCanvas(bmp.width, bmp.height);
-    let ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(bmp, 0, 0);
-    const imageData = ctx.getImageData(0, 0, bmp.width, bmp.height);
-    ctx = null;
-    canvas.width = 0; canvas.height = 0;
-    const mat_original = cv.matFromImageData(imageData);
-    cv.cvtColor(mat_original, mat, cv.COLOR_BGR2GRAY);
-    mat_original.delete();
-    const pdfScale = mat.rows / 3508;
-    //console.log("SIZE", mat.cols, mat.rows);
-
-    // Compute ORB features
-    orb.detectAndCompute(mat, mask, kp, des);
-    orb.delete();
-    mask.delete();
-
-    // Now match features against the template
-    bf.knnMatch(template.des, des, knn, 2);
-    const pts1 = [], pts2 = [];
-    for (let i = 0; i < knn.size(); i++) {
-      const dmatch = knn.get(i);
-
-      const m = dmatch.get(0);
-      const n = dmatch.get(1);
-      if (m.distance < 0.75 * n.distance) {
-        const p1 = template.kp.get(m.queryIdx).pt;
-        const p2 = kp.get(m.trainIdx).pt;
-        pts1.push(p1.x, p1.y);
-        pts2.push(p2.x, p2.y);
-      }
-      dmatch.delete();
-    }
-
-    let points1 = cv.matFromArray(pts1.length / 2, 1, cv.CV_32FC2, pts1);
-    let points2 = cv.matFromArray(pts2.length / 2, 1, cv.CV_32FC2, pts2);
-
-    const H = cv.findHomography(points2, points1, cv.RANSAC, 3.0, inlierMask);
-    const transH = [...H.data64F];
-    cv.invert(H, Hinvert, cv.DECOMP_LU);
-    const invH = [...Hinvert.data64F];
-
-    try {
-
-      // 6) Warp img2 into img1 frame
-      // cv.warpPerspective(
-      //   mat,               // src
-      //   wmat,                // dst
-      //   H,                  // homography
-      //   new cv.Size(template.mat.cols, template.mat.rows), // output size
-      //   cv.INTER_LINEAR,
-      //   cv.BORDER_REPLICATE
-      // );
-
-      // Following the warp...
-
-      cv.GaussianBlur(mat, wmat, new cv.Size(5, 5), 0);
-      // Hough circles
-      cv.HoughCircles(
-        wmat,
-        circlesMat,
-        cv.HOUGH_GRADIENT,
-        1, // dp
-        15, // minDist
-        40, // param1 (higher threshold for Canny edge detector)
-        28, // param2 (accumulator threshold)
-        18*pdfScale, // minRadius (we are after circles with rad 22.5)
-        27*pdfScale  // maxRadius
-      );
-
-      // // draw circles
-      //const color = new cv.Scalar(0, 0, 0);
-      const circles = [];
-      for (let i = 0; i < circlesMat.cols; ++i) {
-        let x = circlesMat.data32F[i * 3];
-        let y = circlesMat.data32F[i * 3 + 1];
-        let radius = circlesMat.data32F[i * 3 + 2];
-        circles.push([x, y, radius]);
-        //let center = new cv.Point(x, y);
-        //cv.circle(wmat, center, radius, color);
-      }
-      //console.log("circles", circles);
-
-      // dbgOutput([await matToBlobURL(blurMat)]);
-      // console.log(circles);
-
-      // Search for known lattice
-      // (will be different for pages != 0)
-
-
-
-      const sqrSearchRadius = Math.pow(25*pdfScale, 2);
-      points1.delete(); points2.delete();
-      let next_global_drift_x = 0, next_global_drift_y = 0;
-      for (let li = 0; li < known_lattices[templatePage].length; li++) {
-        const global_drift_x = next_global_drift_x;
-        const global_drift_y = next_global_drift_y;
-        next_global_drift_x = 0;
-        next_global_drift_y = 0;
-        //console.log(`lattice ${li}`);
-        pts1.length = 0; pts2.length = 0;
-
-        const lattice = known_lattices[templatePage][li];
-        let rect_x = lattice.xstart - 30;
-        let rect_y = lattice.ystart - 30;
-        let rect_w = Math.floor(lattice.xstep * (lattice.cols - 1)) + 60;
-        let rect_h = Math.floor(lattice.ystep * (lattice.rows - 1)) + 60;
-
-        if (templatePage === 0) {
-          if (li < 3) {
-            // Add 180 to the top, to include letter fields and label
-            rect_y -= 180;
-            rect_h += 180;
-
-            // If this is the student number box, add 800 to the bottom to get unit, signature, date
-            if (li === 0) {
-              rect_h += 800;
+          // If this is the last column of the first row
+          // and if the next lattice is horizontally to the right
+          // set the next global drift here
+          if (templatePage === 0) {
+            if (row === 0 && col === lattice.cols - 1 && li !== 2 && li !== 6) {
+              next_global_drift_x = xoffset_inner + xoffset_outer;
+              next_global_drift_y = yoffset_inner + yoffset_outer;
             }
           } else {
-            // Add 60 to the top, 50 to the bottom
-            rect_y -= 60;
-            rect_h += 60 + 50;
-
-            // 80 to the left and 70 to the right
-            rect_x -= 80;
-            rect_w += 80 + 70;
-
-            // If this is the leftmost box, stretch it out to the left edge
-            if (li === 3) {
-              rect_w += rect_x;
-              rect_x = 0;
-            }
-            // If this is the rightmost box, stretch it out to the right edge
-            if (li === 6) {
-              const add = 2479 - rect_w - rect_x;
-              rect_w += add;
+            if (row === 0 && col === lattice.cols - 1 && li < 9) {
+              next_global_drift_x = xoffset_inner + xoffset_outer;
+              next_global_drift_y = yoffset_inner + yoffset_outer;
             }
           }
-        } else {
-          // Add 60 to the top, 50 to the bottom
-          rect_y -= 60;
-          rect_h += 60 + 50;
+        }
+        y += lattice.ystep;
+      }
 
-          // 80 to the left and 70 to the right
-          rect_x -= 80;
-          rect_w += 80 + 70;
+      const label = `answer-sheet grid ${li + 1}`;
+      const gridMatrix = fitAlignment(cv, pts2, pts1, inlierMask, label);
+      let corners;
+      try {
+        if (retry) {
+          requireMatchCoverage(pts1, inlierMask, Math.ceil(lattice.cols * lattice.rows / 3),
+            lattice.xstep * (lattice.cols - 1) / 2, lattice.ystep * (lattice.rows - 1) / 2, label);
+        }
+        const gridInverse = invertAlignment(cv, gridMatrix, inverse, label);
+        corners = [transformPoint([rect_x, rect_y], gridInverse),
+          transformPoint([rect_x + rect_w, rect_y + rect_h], gridInverse)];
+      } finally {
+        gridMatrix.delete();
+      }
+      let o_rect_x = Math.fround(corners[0][0]);
+      let o_rect_y = Math.fround(corners[0][1]);
+      let o_rect_w = Math.fround(corners[1][0]) - o_rect_x;
+      let o_rect_h = Math.fround(corners[1][1]) - o_rect_y;
 
-          // If this is a left box, stretch it out to the left edge
-          if (li < 3) {
-            rect_w += rect_x;
-            rect_x = 0;
+      const [prev_rect_x, prev_rect_y, prev_rect_w, prev_rect_h] = [rect_x, rect_y, rect_w, rect_h];
+      if (o_rect_x < 0) {
+        const scale = rect_w / o_rect_w;
+        o_rect_w += o_rect_x; // o_rect_x is negative so this subtracts
+
+        rect_w += o_rect_x * scale;
+        rect_x -= o_rect_x * scale; // o_rect_x is negative so this adds
+        o_rect_x = 0;
+      }
+      if (o_rect_y < 0) {
+        const scale = rect_h / o_rect_h;
+        o_rect_h += o_rect_y;
+        rect_h += o_rect_y * scale;
+        rect_y -= o_rect_y * scale;
+        o_rect_y = 0;
+      }
+      if (o_rect_x + o_rect_w > mat.cols) {
+        const scale = rect_w / o_rect_w;
+        const over = o_rect_x + o_rect_w - mat.cols;
+        o_rect_w -= over;
+        rect_w -= over * scale;
+      }
+      if (o_rect_y + o_rect_h > mat.rows) {
+        const scale = rect_h / o_rect_h;
+        const over = o_rect_y + o_rect_h - mat.rows;
+        o_rect_h -= over;
+        rect_h -= over * scale;
+      }
+
+      if (![rect_x, rect_y, rect_w, rect_h].every(Number.isFinite)
+        || o_rect_w <= 0 || o_rect_h <= 0 || rect_x < 0 || rect_y < 0 || rect_w < 1 || rect_h < 1
+        || Math.trunc(rect_x) + Math.trunc(rect_w) > template.mat.cols
+        || Math.trunc(rect_y) + Math.trunc(rect_h) > template.mat.rows) {
+        throw new PageAlignmentError(`The mapped area for ${label} is outside the page.`);
+      }
+      for (let i = 0; i < pts1.length; i += 2) {
+        pts1[i] -= rect_x;
+        pts1[i + 1] -= rect_y;
+      }
+      const local = fitAlignment(cv, pts2, pts1, inlierMask, label);
+      try {
+        if (matOut) {
+          const roi = matOut.roi(new cv.Rect(rect_x, rect_y, rect_w, rect_h));
+          try {
+            cv.warpPerspective(mat, roi, local, new cv.Size(rect_w, rect_h), cv.INTER_LINEAR, cv.BORDER_REPLICATE);
+          } finally {
+            roi.delete();
           }
-          // If this is a right box, stretch it out to the right edge
-          if (li >= 9) {
-            const add = 2479 - rect_w - rect_x;
-            rect_w += add;
-          }
         }
-
-        let { xstart, ystart } = lattice;
-        let y = ystart;
-        let xoffset_outer = global_drift_x;
-        let yoffset_outer = global_drift_y;
-
-        for (let row = 0; row < lattice.rows; row++) {
-          let x = xstart;
-          let xoffset_inner = 0;
-          let yoffset_inner = 0;
-
-          for (let col = 0; col < lattice.cols; col++) {
-            // Search for circle within threshold radius, take closest
-            let closest_circle = null;
-            let closest_dist = Infinity;
-            let [xts, yts] = transformPoint([x, y], invH);
-            xts += xoffset_outer + xoffset_inner;
-            yts += yoffset_outer + yoffset_inner;
-
-            for (const circle of circles) {
-              let sqrdist = Math.pow(xts - circle[0], 2) +
-                Math.pow(yts - circle[1], 2);
-              if (sqrdist < closest_dist) {
-                closest_dist = sqrdist;
-                closest_circle = circle;
-              }
-            }
-            if (closest_dist < sqrSearchRadius) {
-              // Set offset to match circle
-              if (col === 0) {
-                xoffset_outer += closest_circle[0] - xts;
-                yoffset_outer += closest_circle[1] - yts;
-              } else {
-                xoffset_inner += closest_circle[0] - xts;
-                yoffset_inner += closest_circle[1] - yts;
-              }
-              // Add points
-              pts1.push(x, y);
-              pts2.push(closest_circle[0], closest_circle[1]);
-              //console.log([x, y], "->", closest_circle.slice(0,2));
-              //cv.circle(wmat, new cv.Point(closest_circle[0], closest_circle[1]), 20, color, -1);
-            }
-            x += lattice.xstep;
-
-            // If this is the last column of the first row
-            // and if the next lattice is horizontally to the right
-            // set the next global drift here
-            if (templatePage === 0) {
-              if (row === 0 && col === lattice.cols - 1 && li !== 2 && li !== 6) {
-                next_global_drift_x = xoffset_inner + xoffset_outer;
-                next_global_drift_y = yoffset_inner + yoffset_outer;
-              }
-            } else {
-              if (row === 0 && col === lattice.cols - 1 && li < 9) {
-                next_global_drift_x = xoffset_inner + xoffset_outer;
-                next_global_drift_y = yoffset_inner + yoffset_outer;
-              }
-            }
-          }
-          y += lattice.ystep;
-        }
-
-        points1 = cv.matFromArray(pts1.length / 2, 1, cv.CV_32FC2, pts1);
-        points2 = cv.matFromArray(pts2.length / 2, 1, cv.CV_32FC2, pts2);
-        let H2 = cv.findHomography(points2, points1, cv.RANSAC, 3.0, inlierMask);
-        //console.log("pts1", pts1);
-        //console.log("pts2", pts2);
-        //cv.gemm(H, H2, 1, Hblank, 0, Hfinal);
-        cv.invert(H2, Hinvert, cv.DECOMP_LU);
-        const srcCorners = cv.matFromArray(2, 1, cv.CV_32FC2, [rect_x, rect_y, rect_x + rect_w, rect_y + rect_h]);
-        const dstCorners = new cv.Mat();
-        cv.perspectiveTransform(srcCorners, dstCorners, Hinvert);
-        let o_rect_x = dstCorners.data32F[0];
-        let o_rect_y = dstCorners.data32F[1];
-        let o_rect_w = dstCorners.data32F[2] - o_rect_x;
-        let o_rect_h = dstCorners.data32F[3] - o_rect_y;
-        srcCorners.delete(); dstCorners.delete();
-        //console.log("Copying from", [o_rect_x, o_rect_y, o_rect_w, o_rect_h], "to", [rect_x, rect_y, rect_w, rect_h]);
-        // Crop o_rect to mat
-        let [prev_rect_x, prev_rect_y, prev_rect_w, prev_rect_h] = [rect_x, rect_y, rect_w, rect_h];
-        if (o_rect_x < 0) {
-          //console.log("crop 1", rect_x, rect_y, rect_w, rect_h, o_rect_x, o_rect_y, o_rect_w, o_rect_h);
-          const scale = rect_w / o_rect_w;
-          o_rect_w += o_rect_x; // o_rect_x is negative so this subtracts
-
-          rect_w += o_rect_x * scale;
-          rect_x -= o_rect_x * scale; // o_rect_x is negative so this adds
-          o_rect_x = 0;
-        }
-        if (o_rect_y < 0) {
-          const scale = rect_h / o_rect_h;
-          o_rect_h += o_rect_y;
-          rect_h += o_rect_y * scale;
-          rect_y -= o_rect_y * scale;
-          o_rect_y = 0;
-        }
-        if (o_rect_x + o_rect_w > mat.cols) {
-          const scale = rect_w / o_rect_w;
-          const over = o_rect_x + o_rect_w - mat.cols;
-          o_rect_w -= over;
-          rect_w -= over * scale;
-        }
-        if (o_rect_y + o_rect_h > mat.rows) {
-          const scale = rect_h / o_rect_h;
-          const over = o_rect_y + o_rect_h - mat.rows;
-          o_rect_h -= over;
-          rect_h -= over * scale;
-        }
-
-        //console.log(`Warp: ${rect_x},${rect_y} ${rect_w}*${rect_h} --> ${o_rect_x},${o_rect_y} ${o_rect_w}*${o_rect_h}`);
-
-        points1.delete(); points2.delete();
-
-        //points2 = cv.matFromArray(pts2.length / 2, 1, cv.CV_32FC2, pts2);
-        //cv.invert(H, Hinvert, cv.DECOMP_LU);
-        //cv.perspectiveTransform(points2, points2, Hinvert);
-        for (let i = 0; i < pts1.length / 2; i++) {
-          pts1[i * 2 + 0] -= rect_x;
-          pts1[i * 2 + 1] -= rect_y;
-          //pts2[i * 2 + 0] = points2.data32F[i * 2 + 0];
-          //pts2[i * 2 + 1] = points2.data32F[i * 2 + 1];
-        }
-        //points2.delete();
-        points1 = cv.matFromArray(pts1.length / 2, 1, cv.CV_32FC2, pts1);
-        points2 = cv.matFromArray(pts2.length / 2, 1, cv.CV_32FC2, pts2);
-
-        H2.delete();
-        H2 = cv.findHomography(points2, points1, cv.RANSAC, 3.0, inlierMask);
-        //const matRoi = mat.roi(new cv.Rect(o_rect_x, o_rect_y, o_rect_w, o_rect_h));
-        const outRoi = matOut.roi(new cv.Rect(rect_x, rect_y, rect_w, rect_h));
-        cv.warpPerspective(
-          mat,                // src
-          outRoi,                // dst
-          H2,             // homography
-          new cv.Size(rect_w, rect_h), // output size
-          cv.INTER_LINEAR,
-          cv.BORDER_REPLICATE
-        );
-
-        cv.invert(H2, Hinvert, cv.DECOMP_LU);
         homographies.push({
           rect_x: prev_rect_x,
           rect_y: prev_rect_y,
           rect_w: prev_rect_w,
           rect_h: prev_rect_h,
-          matrix: Array.from(Hinvert.data64F)
+          matrix: invertAlignment(cv, local, inverse, label)
         });
-        //matRoi.delete();
-        outRoi.delete();
-
-        points1.delete(); points2.delete();
-        H2.delete();
+      } finally {
+        local.delete();
       }
-
-    } finally { H.delete(); }
-  } catch (e) {
-    matOut.delete();
-    throw e;
+    }
+    return homographies;
   } finally {
-    bf.delete(); knn.delete(); kp.delete(); des.delete(); wmat.delete();
-    Hinvert.delete(); Hfinal.delete(); Hblank.delete();
+    inverse.delete();
     inlierMask.delete();
-    circlesMat.delete();
-    mat.delete();
   }
-  //console.log("finished scanning page", currentPage);
-  return [matOut, homographies];
+}
+
+const warpPdfPageLinear = async (bmp, templatePage, matricesOnly = false) => {
+  const cv = await cvReadyPromise;
+  const template = (await templateImagesPromise)[templatePage];
+  const mat = grayMatFromBitmap(cv, bmp);
+  const blurred = new cv.Mat();
+  const detected = new cv.Mat();
+  try {
+    const pdfScale = mat.rows / 3508;
+    cv.GaussianBlur(mat, blurred, new cv.Size(5, 5), 0);
+    cv.HoughCircles(blurred, detected, cv.HOUGH_GRADIENT, 1, 15, 40, 28, 18 * pdfScale, 27 * pdfScale);
+    const circles = Array.from({ length: detected.cols }, (_, i) => [
+      detected.data32F[i * 3], detected.data32F[i * 3 + 1]
+    ]);
+    const attempt = retry => {
+      const matOut = matricesOnly ? null : template.mat.mat_clone();
+      try {
+        return [matOut, alignAnswerGrids(cv, mat, template, templatePage, circles, pdfScale, matOut, retry)];
+      } catch (error) {
+        matOut?.delete();
+        throw error;
+      }
+    };
+    try {
+      return attempt(false);
+    } catch (error) {
+      if (!(error instanceof PageAlignmentError)) throw error;
+      try {
+        return attempt(true);
+      } catch (retryError) {
+        if (!(retryError instanceof PageAlignmentError)) throw retryError;
+        const side = templatePage === 0 ? 'front-side' : 'reverse-side';
+        throw new PageAlignmentError(`Could not align this PDF page with the ${side} answer-sheet template. ${retryError.message} Check the scan quality and page order.`);
+      }
+    }
+  } finally {
+    mat.delete();
+    blurred.delete();
+    detected.delete();
+  }
 };
 
 const predict_answer_cas = (filled, ocrlist, anticheat = false, allowMultiple = false) => {
@@ -1388,7 +1104,8 @@ const difference = async (field, idx, origValue, scannedValue, mat, x1, y1, x2, 
 };
 
 const scan_matrix = async data => {
-  return [{homographies: await createProjectionMatrices(data.bmp, data.page)}, []];
+  const [, homographies] = await warpPdfPageLinear(data.bmp, data.page, true);
+  return [{ homographies }, []];
 };
 
 const scan = async data => {
@@ -1497,6 +1214,9 @@ onmessage = async e => {
     const [response, transferables] = await func(e.data);
     postMessage({ id: e.data.id, ...response }, transferables);
   } catch (err) {
-    postMessage({ id: e.data.id, error: `${err.message} : ${err.stack}` });
+    const error = err instanceof PageAlignmentError ? err.message : `${err.message} : ${err.stack}`;
+    postMessage({ id: e.data.id, error });
+  } finally {
+    e.data.bmp?.close?.();
   }
 };
