@@ -2,7 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { loadCSV } from './util/csv.mjs';
 import { normaliseAnswer } from './examDomain.mjs';
 import { createLazyScannerClient } from './scannerClient.mjs';
-import { ScanIssues } from './components/ScanIssues.jsx';
+import { ScanIssues, ScanRecoveryStatus } from './components/ScanIssues.jsx';
 import { ScannerConfig } from './components/ScannerConfig.jsx';
 import { ComparisonPanel } from './components/ComparisonPanel.jsx';
 import { AnswerKeyPanel } from './components/AnswerKeyPanel.jsx';
@@ -11,7 +11,7 @@ import { PdfSetupPanel } from './components/PdfSetupPanel.jsx';
 import { ScanProgress } from './components/ScanProgress.jsx';
 import { QuestionableReview } from './components/ReviewPanels.jsx';
 import { ExamResultsTable } from './components/ExamResultsTable.jsx';
-import { ResultsFileExchange } from './components/ResultsFileExchange.jsx';
+import { ResultsFileExchange, ResultsImports } from './components/ResultsFileExchange.jsx';
 import { CanvasTransfer } from './components/CanvasTransfer.jsx';
 import { ExamAnalysis } from './components/ExamAnalysis.jsx';
 import { ViewerDialog } from './components/ViewerDialog.jsx';
@@ -27,6 +27,7 @@ const scannerClient = createLazyScannerClient(() => new Worker(
 ));
 
 const initialScanConfig = (endAt = 1) => ({ startAt: 1, endAt, hasMarker: false });
+const defaultMarking = { defaultMarks: 1, ranges: [], overrides: {} };
 const filenameKey = name => `${name ?? ''}`.trim().replaceAll('\\', '/').split('/').at(-1).toLowerCase();
 
 export function App() {
@@ -37,6 +38,7 @@ export function App() {
   const [pdfPage, setPdfPage] = useState(1);
   const [previewURI, setPreviewURI] = useState(null);
   const [comparison, setComparison] = useState({});
+  const [tasDraft, setTasDraft] = useState({});
   const [viewer, setViewer] = useState(null);
   const [importCSVPage1, setImportCSVPage1] = useState(1);
   const [cfg, setCfg] = useState({
@@ -44,7 +46,7 @@ export function App() {
     hasMultiAnswer: false,
     multiAnswerQuestions: {},
     answerKey: {},
-    marking: { defaultMarks: 1, ranges: [], overrides: {} },
+    marking: defaultMarking,
     showQuestionable: true,
     showQActioned: true,
     showActioned: true
@@ -65,9 +67,15 @@ export function App() {
     reportIssue: reportScanIssue,
     currentlyScanning,
     scanExams,
+    scanMissingPapers,
+    scanRuns,
+    setScanRuns,
+    missingScan,
+    missingScans,
     matchLoadedExamsToPdf
   } = useScanWorkflow({
     source,
+    pdfSources,
     config: activeConfig,
     setConfig: setCfg,
     scannerClient,
@@ -75,6 +83,7 @@ export function App() {
   });
   const busy = currentlyScanning || loadingPdf || importingResults;
   const hasBatchResults = Boolean(source && examResults.some(result => result.sourceId === source.id));
+  const hasBatchWork = hasBatchResults || Boolean(source && Object.hasOwn(scanRuns, source.id));
   const hasOtherResults = examResults.some(result => result.sourceId !== source?.id);
   const loadedPdfSources = pdfSources.filter(item => item.pdf);
 
@@ -136,6 +145,7 @@ export function App() {
           && result.page >= firstExamPage && result.page <= scanConfig.endAt
           && (result.page - firstExamPage) % pagesPerExam === 0);
       setComparison({});
+      setScanRuns({});
 
       if (canMatch && window.confirm('Match loaded exams against the current PDF? (This will take some time, but will enable exporting of marked PDFs.)')) {
         setImportingResults(false);
@@ -172,7 +182,7 @@ export function App() {
         name: known?.name ?? file.name,
         numPages: loadedPdf.numPages,
         pdf: loadedPdf,
-        scanConfig: known?.scanConfig ?? initialScanConfig(loadedPdf.numPages)
+        scanConfig: known ? known.scanConfig : initialScanConfig(loadedPdf.numPages)
       };
       setPdfSources(previous => known ? previous.map(item => item.id === known.id ? loadedSource : item) : [...previous, loadedSource]);
       selectSource(loadedSource.id);
@@ -186,8 +196,8 @@ export function App() {
 
   const pdfDeselected = () => {
     if (busy || !pdf) return;
-    if (hasBatchResults && !window.confirm('Remove this PDF? Its reviewed results will stay. Reload the original file to preview or export its pages.')) return;
-    const remaining = hasBatchResults ? pdfSources.map(item => item === source ? { ...item, pdf: undefined } : item)
+    if (hasBatchWork && !window.confirm('Remove this PDF? Its results and scan progress will stay. Reload the original file to continue working with its pages.')) return;
+    const remaining = hasBatchWork ? pdfSources.map(item => item === source ? { ...item, pdf: undefined } : item)
       : pdfSources.filter(item => item !== source);
     setPdfSources(remaining);
     setViewer(null);
@@ -198,11 +208,13 @@ export function App() {
   const updateScanConfig = (field, value) => setPdfSources(previous => previous.map(item => item.id === activeSourceId
     ? { ...item, scanConfig: { ...(item.scanConfig ?? initialScanConfig(item.numPages)), [field]: value } } : item));
 
-  const restoreDataset = ({ config, examResults, pdfSources: restoredSources, comparison }) => {
-    setCfg(previous => ({ ...previous, ...config }));
+  const restoreDataset = ({ config, examResults, pdfSources: restoredSources, comparison, scanRuns, tasDraft }) => {
+    setCfg(previous => ({ ...previous, marking: defaultMarking, showQuestionable: true, ...config }));
     setExamResults(examResults);
     setPdfSources(restoredSources);
     setComparison(comparison);
+    setScanRuns(scanRuns);
+    setTasDraft(tasDraft);
     setViewer(null);
     selectSource((restoredSources.find(item => item.pdf) ?? restoredSources[0])?.id ?? null);
     clearScanIssues();
@@ -252,6 +264,16 @@ export function App() {
 
   const keyedQuestionCount = Object.values(cfg.answerKey)
     .filter(answer => Object.values(answer).some(Boolean)).length;
+  const hasSetupEdits = keyedQuestionCount > 0 || cfg.twoSided || cfg.hasMultiAnswer || !cfg.showQuestionable
+    || Object.values(cfg.multiAnswerQuestions).some(Boolean) || cfg.marking.ranges?.length > 0
+    || Object.keys(cfg.marking.overrides ?? {}).length > 0 || Number(cfg.marking.defaultMarks) !== 1
+    || Object.keys(tasDraft).length > 0 || pdfSources.some(item => item.scanConfig && (item.scanConfig.hasMarker
+      || item.scanConfig.startAt !== 1 || item.scanConfig.endAt !== item.numPages));
+  const hasWorkToReplace = examResults.length > 0 || hasSetupEdits || Object.keys(scanRuns).length > 0;
+  const canSaveDataset = hasWorkToReplace || pdfSources.length > 0;
+  const canOfferRecovery = Boolean(missingScan);
+  const hasLiveFailures = scanIssues.some(issue => issue.pdfName === pdfName
+    && (issue.stage === 'Could not scan exam' || issue.stage === 'Could not scan marker page'));
   const canViewPage = (page, sourceId) => {
     const document = pdfSourceForResult(pdfSources, { sourceId })?.pdf;
     return Boolean(document && Number(page) >= 1 && Number(page) <= document.numPages);
@@ -298,6 +320,7 @@ export function App() {
                     pdf={pdf}
                     pdfName={pdfName}
                     pdfSources={pdfSources}
+                    missingScans={missingScans}
                     activeSourceId={activeSourceId}
                     previewURI={previewURI}
                     currentPage={pdfPage}
@@ -319,8 +342,8 @@ export function App() {
               <div class="setup-column setup-column--answer" id="answer-key">
                 <h3>Answer key</h3>
                 <p class="setup-column__description">Select every accepted answer. Enable Multi only where the complete set is required.</p>
-                <AnswerKeyPanel cfg={cfg} setCfg={setCfg} pdfBatches={loadedPdfSources}
-                  missingPdfCount={pdfSources.length - loadedPdfSources.length} currentlyScanning={busy} />
+                <AnswerKeyPanel cfg={cfg} setCfg={setCfg} pdfBatches={pdfSources}
+                  tasDraft={tasDraft} setTasDraft={setTasDraft} currentlyScanning={busy} />
               </div>
             </div>
           </WorkspaceSection>
@@ -328,21 +351,30 @@ export function App() {
           <div class="scan-action-panel">
             <div>
               <p class="scan-action-panel__eyebrow">Ready to process</p>
-              <h2>{pdf ? (pdfSources.length > 1 ? `Scan ${pdfName}` : `${pdf.numPages} page PDF loaded`) : 'Load a PDF to scan'}</h2>
-              <p>{hasOtherResults ? 'The other batches stay in your reviewed results.'
-                : 'Recognition runs locally. Review uncertain marks before exporting final grades.'}</p>
+              <h2>{pdf ? (pdfSources.length > 1 ? `Scan ${pdfName}` : `${pdf.numPages} page PDF loaded`)
+                : canOfferRecovery && pdfName ? `Reload ${pdfName} to continue` : 'Load a PDF to scan'}</h2>
+              {canOfferRecovery ? <ScanRecoveryStatus recovery={missingScan} pdfLoaded={Boolean(pdf)} showFailures={!hasLiveFailures} />
+                : <p>{hasOtherResults ? 'The other batches stay in your reviewed results.'
+                  : 'Recognition runs locally. Review uncertain marks before exporting final grades.'}</p>}
             </div>
-            <button
-              disabled={pdf === null || (busy && !currentlyScanning)}
-              onClick={scanExams}
-              class={`btn btn-lg ${currentlyScanning ? 'btn-danger' : 'btn-primary'} scan-action-panel__button`}
-            >
-              {currentlyScanning ? 'Stop scanning' : hasOtherResults && !hasBatchResults ? 'Scan and append exams' : 'Scan Exams'}
-            </button>
+            <div class="scan-action-panel__actions">
+              <button type="button"
+                disabled={!currentlyScanning && (busy || !pdf || (canOfferRecovery && !missingScan.canRecover))}
+                onClick={canOfferRecovery && !currentlyScanning ? scanMissingPapers : scanExams}
+                class={`btn btn-lg ${currentlyScanning ? 'btn-danger' : 'btn-primary'} scan-action-panel__button`}>
+                {currentlyScanning ? 'Stop scanning' : canOfferRecovery ? 'Scan missing papers'
+                  : hasOtherResults && !hasBatchResults ? 'Scan and append exams' : 'Scan Exams'}
+              </button>
+              {canOfferRecovery && pdf && !currentlyScanning ? <button type="button" class="btn btn-sm btn-outline-light"
+                onClick={scanExams} disabled={busy}>{hasBatchResults ? 'Rescan this PDF' : 'Start a new scan'}</button> : null}
+            </div>
           </div>
 
           <ScanProgress progress={progress} stage={scanStage} />
           <ScanIssues issues={scanIssues} onDismiss={clearScanIssues} />
+          <ResultsImports pdfSources={pdfSources} hasWorkToReplace={hasWorkToReplace} busy={busy}
+            importCsvPage={importCSVPage1} setImportCsvPage={setImportCSVPage1} onImportRawCsv={rawCsvImport}
+            onDatasetImporting={setImportingResults} onRestoreDataset={restoreDataset} />
 
           <WorkspaceSection
             id="results"
@@ -379,19 +411,16 @@ export function App() {
             number="3"
             eyebrow="Output"
             title="Export and continue"
-            description="Download results, resume previous work, or prepare grades for Canvas."
+            description="Download results, save your work, or prepare grades for Canvas."
           >
             <ResultsFileExchange
               cfg={cfg}
               examResults={examResults}
               pdfSources={pdfSources}
-              onRestoreDataset={restoreDataset}
-              onDatasetImporting={setImportingResults}
-              currentlyScanning={busy}
-              importCsvPage={importCSVPage1}
-              setImportCsvPage={setImportCSVPage1}
-              onImportRawCsv={rawCsvImport}
               comparison={comparison}
+              scanRuns={scanRuns}
+              tasDraft={tasDraft}
+              canSaveDataset={canSaveDataset}
             />
             <CanvasTransfer examResults={examResults} setExamResults={setExamResults} cfg={cfg} pdfSources={pdfSources}
               onViewPage={viewPage} canAnnotatePdf={canAnnotatePdf} createAnnotatedPdf={createAnnotatedPdf} />

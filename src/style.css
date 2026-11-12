@@ -729,6 +729,26 @@ select {
   box-shadow: 0 10px 24px rgba(4, 12, 34, 0.24);
 }
 
+.scan-action-panel__actions {
+  display: grid;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.scan-action-panel__failures {
+  margin-top: 6px;
+  color: #d4d9dd;
+  font-size: 0.85rem;
+}
+
+.scan-action-panel__failures ul {
+  margin: 4px 0 0;
+}
+
+.scan-imports {
+  margin-top: 12px;
+}
+
 .scan-progress {
   margin-top: 14px;
   padding: 18px 20px;

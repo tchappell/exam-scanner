@@ -45,6 +45,20 @@ In **Create TAS request PDF**, select **Append scanned PDF** or **Append scanned
 to include the loaded batches in order. The export uses each batch's page range
 and skips any designated marker sheets.
 
+## Save setup and resume scanning
+
+Use **Download working dataset** in the Files section to save the answer key,
+mark allocation, PDF page ranges and TAS request draft before scanning. The
+same file can save partial scans and review progress.
+
+Use **Resume saved work** below the scan button to reopen `results.json`, then
+reload the original PDF for the batch you want to continue. **Scan missing
+papers** uses the saved scan range to process unattempted and failed papers
+while keeping existing results and corrections. A saved failure identifies
+the PDF page that failed, including the reverse side of a two-sided paper.
+Older datasets with a saved range can identify gaps when the existing results
+match that range and sheet layout.
+
 ## Review official scanning results
 
 Scan the papers and make your corrections first. When the official results

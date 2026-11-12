@@ -5,6 +5,7 @@ export function PdfSetupPanel({
   pdf,
   pdfName,
   pdfSources,
+  missingScans,
   activeSourceId,
   previewURI,
   currentPage,
@@ -34,9 +35,14 @@ export function PdfSetupPanel({
             <label htmlFor="pdf-batch">PDF batch</label>
             <select id="pdf-batch" class="form-select" value={activeSourceId} disabled={busy}
               onChange={event => onSelectSource(event.target.value)}>
-              {pdfSources.map((source, index) => <option key={source.id} value={source.id}>
-                {index + 1}. {source.name ?? 'Original PDF'}{source.pdf ? '' : ' (reload required)'}
-              </option>)}
+              {pdfSources.map((source, index) => {
+                const recovery = missingScans[source.id];
+                const missing = recovery ? recovery.pendingCount + recovery.failedCount : 0;
+                const status = missing ? ` · ${missing} missing` : recovery?.markerPending || recovery?.markerFailed ? ' · marker incomplete' : '';
+                return <option key={source.id} value={source.id}>
+                  {index + 1}. {source.name ?? 'Original PDF'}{source.pdf ? '' : ' (reload required)'}{status}
+                </option>;
+              })}
             </select>
           </div>
           {pdf ? appendButton : null}

@@ -4,7 +4,13 @@ import test from 'node:test';
 import {
   activeMultiAnswerQuestions,
   attachPdfMetadata,
-  scanDocument
+  createScanRun,
+  inferScanRun,
+  missingScanPages,
+  normaliseScanRuns,
+  recordScanAttempt,
+  scanDocument,
+  summarizeMissingScan
 } from '../src/services/scanWorkflow.mjs';
 
 const blankAnswers = count => Array(count).fill(' ');
@@ -145,6 +151,93 @@ test('a failed page is reported without discarding later scans', async () => {
   assert.equal(outcome.results.length, 1);
   assert.equal(outcome.results[0].page, 2);
   assert.equal(outcome.results[0].answers[0], 'C');
+});
+
+test('a saved two-sided run retries only failed and unattempted papers', async () => {
+  const abort = new AbortController();
+  let run = createScanRun({
+    startAt: 1, endAt: 8, twoSided: true, hasMarker: true,
+    hasMultiAnswer: true, multiAnswerQuestions: { 40: true }
+  });
+  const issues = [];
+  const scanned = await scanDocument({
+    scanner: {
+      async initialize() {},
+      async scanPage({ pageNumber, side }) {
+        if (pageNumber === 6) throw new Error('Reverse could not align');
+        if (pageNumber === 8) abort.abort();
+        return side ? secondSideResponse() : firstSideResponse();
+      }
+    },
+    config: run.config,
+    signal: abort.signal,
+    callbacks: {
+      onAttempt: attempt => { run = recordScanAttempt(run, attempt); },
+      onIssue: issue => issues.push(issue)
+    }
+  });
+  assert.equal(scanned.cancelled, true);
+  assert.deepEqual(scanned.results.map(result => result.page), [3]);
+  assert.equal(issues[0].page, 6);
+  assert.equal(run.markerStatus, 'scanned');
+
+  const saved = JSON.parse(JSON.stringify({ batch: run }));
+  const restored = normaliseScanRuns(saved, [{ id: 'batch', numPages: 8 }]).batch;
+  const summary = summarizeMissingScan(restored, scanned.results);
+  assert.equal(summary.pendingCount, 1);
+  assert.equal(summary.failedCount, 1);
+  assert.deepEqual(summary.failures, [{ frontPage: 5, page: 6, message: 'Reverse could not align', isMarker: false }]);
+
+  const calls = [];
+  const recovered = await scanDocument({
+    scanner: {
+      async initialize() {},
+      async scanPage({ pageNumber, side, multiAnswerQuestions }) {
+        calls.push([pageNumber, side, multiAnswerQuestions]);
+        return side ? secondSideResponse() : firstSideResponse();
+      }
+    },
+    config: restored.config,
+    pages: missingScanPages(restored, scanned.results),
+    callbacks: {
+      onAttempt: attempt => { run = recordScanAttempt(run, attempt); }
+    }
+  });
+  assert.deepEqual(calls, [[5, 0, [40]], [6, 1, [40]], [7, 0, [40]], [8, 1, [40]]]);
+  assert.deepEqual(recovered.results.map(result => result.page), [5, 7]);
+  assert.equal(recovered.answerKey, null);
+  assert.deepEqual(run.failures, {});
+  assert.deepEqual(missingScanPages(run, [...scanned.results, ...recovered.results]), []);
+});
+
+test('legacy page gaps are inferred only for results that match the saved layout', () => {
+  const source = { numPages: 12, scanConfig: { startAt: 3, endAt: 10, hasMarker: true } };
+  const config = { twoSided: true };
+  const knownPaper = { page: 5, answers: blankAnswers(160) };
+  const run = inferScanRun(source, config, [knownPaper]);
+  assert.equal(run.markerStatus, 'skipped');
+  assert.equal(run.inferred, true);
+  assert.equal(summarizeMissingScan(run, [knownPaper]).failedCount, 0);
+  assert.deepEqual(missingScanPages(run, [knownPaper]), [7, 9]);
+  assert.equal(inferScanRun(source, config, [{ ...knownPaper, page: 6 }]), null);
+  assert.equal(inferScanRun(source, config, [{ ...knownPaper, answers: blankAnswers(40) }]), null);
+  assert.equal(inferScanRun(source, config, [knownPaper, { ...knownPaper }]), null);
+});
+
+test('saved scan runs reject invalid references and impossible failure pages', () => {
+  const run = createScanRun({ startAt: 1, endAt: 4, twoSided: true, hasMarker: true });
+  const failed = recordScanAttempt(run, { frontPage: 1, page: 2, status: 'failed', error: new Error('Marker failed') });
+  const saved = {
+    batch: { ...failed, failures: { ...failed.failures, 3: { page: 2, message: 'Wrong sheet' } } },
+    tooLong: run,
+    other: run
+  };
+  const sources = [{ id: 'batch', numPages: 4 }, { id: 'tooLong', numPages: 3 }];
+  assert.deepEqual(normaliseScanRuns(saved, sources), { batch: failed });
+  const skipped = recordScanAttempt(failed, { frontPage: 1, status: 'skipped' });
+  assert.equal(skipped.markerStatus, 'skipped');
+  assert.deepEqual(skipped.failures, {});
+  assert.deepEqual(missingScanPages(skipped, []), [3]);
 });
 
 test('loaded results can receive PDF homographies without rescanning answers', async () => {

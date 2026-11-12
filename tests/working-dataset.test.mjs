@@ -49,7 +49,7 @@ test('a legacy hash restores existing corrections and retains a detached referen
   assert.equal(restored.examResults[0].answers.length, 160);
   assert.deepEqual(restored.examResults[0].homographies, correctedResult.homographies);
 
-  const withPdf = readWorkingDataset(legacy, [late, original]);
+  const withPdf = readWorkingDataset(legacy, [late, { ...original, scanConfig: { startAt: 1, endAt: 2 } }]);
   assert.deepEqual(withPdf.pdfSources, [original]);
   assert.equal(withPdf.examResults[0].sourceId, original.id);
 });
@@ -111,4 +111,47 @@ test('legacy embedded crops restore missing questionable flags without overridin
 
   assert.deepEqual(restored.examResults[0].raw_answers, expected);
   assert.deepEqual(buildWorkingDataset(restored).examResults[0].raw_answers, expected);
+});
+
+test('a setup-only save round-trips settings and exam-specific TAS fields', () => {
+  const config = {
+    twoSided: true,
+    hasMultiAnswer: false,
+    multiAnswerQuestions: { 50: true },
+    answerKey: { 1: { B: true } },
+    marking: { defaultMarks: 2.5, ranges: [], overrides: {} },
+    showQuestionable: false
+  };
+  const pdfSources = [{ ...original, scanConfig: { startAt: 1, endAt: 2, hasMarker: true } }];
+  const draft = { unitCode: 'EXAM123', studentCount: '0', comments: 'Exam notes', appendScans: true };
+  const tasDraft = { ...draft, email: 'not-saved@example.com', name: 'Contact details', mobilePh: '123' };
+  const dataset = buildWorkingDataset({ config, examResults: [], pdfSources, tasDraft });
+  assert.deepEqual(dataset.tasDraft, draft);
+
+  const restored = readWorkingDataset(JSON.parse(JSON.stringify(dataset)));
+  assert.deepEqual(restored.examResults, []);
+  assert.deepEqual(restored.config, config);
+  assert.deepEqual(restored.tasDraft, draft);
+  assert.deepEqual(restored.pdfSources[0].scanConfig, pdfSources[0].scanConfig);
+  assert.equal(restored.pdfSources[0].pdf, undefined);
+});
+
+test('working datasets keep the attempted batch range and failed physical page', () => {
+  const pdfSources = [{ ...original, numPages: 8, scanConfig: { startAt: 3, endAt: 8, hasMarker: false } }];
+  const scanRun = {
+    config: {
+      startAt: 1, endAt: 8, twoSided: true, hasMarker: true,
+      hasMultiAnswer: false, multiAnswerQuestions: {}
+    },
+    markerStatus: 'scanned',
+    failures: { 5: { page: 6, message: 'Could not align the reverse side.' } }
+  };
+  const scanRuns = { [original.id]: scanRun };
+  const examResults = [{ ...correctedResult, sourceId: original.id, page: 3 }];
+  const dataset = buildWorkingDataset({ config: { twoSided: true }, examResults, pdfSources, scanRuns });
+  const restored = readWorkingDataset(JSON.parse(JSON.stringify(dataset)));
+  assert.deepEqual(restored.scanRuns, scanRuns);
+  assert.equal(restored.pdfSources[0].scanConfig.startAt, 3);
+  assert.equal(restored.examResults[0].answers[0], 'B');
+  assert.deepEqual(restored.examResults[0].canvasMatch, correctedResult.canvasMatch);
 });

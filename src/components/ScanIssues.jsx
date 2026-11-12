@@ -1,3 +1,32 @@
+function describeFailure({ frontPage, page, message, isMarker }) {
+  const paper = isMarker ? 'Marker sheet' : `Paper starting on page ${frontPage}`;
+  return `${paper}, PDF page ${page} — ${message}`;
+}
+
+export function ScanRecoveryStatus({ recovery, pdfLoaded, showFailures }) {
+  const { config, pendingCount, failedCount, markerPending, markerFailed, failures, requiresSidedness, inferred } = recovery;
+  const counts = [
+    pendingCount ? `${pendingCount} ${pendingCount === 1 ? 'paper' : 'papers'} ${inferred ? 'missing' : 'not yet scanned'}` : null,
+    failedCount ? `${failedCount} ${failedCount === 1 ? 'paper' : 'papers'} failed` : null,
+    markerPending ? 'Marker sheet pending' : null,
+    markerFailed ? 'Marker sheet failed' : null
+  ].filter(Boolean);
+
+  return <>
+    <p>Saved range {config.startAt}–{config.endAt} · {counts.join(' · ')}</p>
+    {showFailures && failures.length === 1 ? <p>{describeFailure(failures[0])}</p> : showFailures && failures.length > 1 ? (
+      <details class="scan-action-panel__failures">
+        <summary>Failed pages</summary>
+        <ul>{failures.map(failure => <li key={failure.frontPage}>{describeFailure(failure)}</li>)}</ul>
+      </details>
+    ) : null}
+    {!pdfLoaded ? <p>Reload the original PDF to scan the missing papers.</p>
+      : requiresSidedness ? <p>Set Two-sided sheets to match the saved scan before continuing.</p>
+      : !recovery.canRecover ? <p>The saved range is outside this PDF.</p>
+      : <p>Previously scanned papers and corrections will be kept.</p>}
+  </>;
+}
+
 export function ScanIssues({ issues, onDismiss }) {
   if (issues.length === 0) return null;
 

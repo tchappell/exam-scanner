@@ -9,13 +9,10 @@ export function ResultsFileExchange({
   cfg,
   examResults,
   pdfSources,
-  currentlyScanning,
-  importCsvPage,
-  setImportCsvPage,
-  onImportRawCsv,
   comparison,
-  onDatasetImporting,
-  onRestoreDataset
+  scanRuns,
+  tasDraft,
+  canSaveDataset
 }) {
   const exportResults = () => {
     const rows = buildResultsCsvRows({
@@ -34,24 +31,8 @@ export function ResultsFileExchange({
   };
 
   const exportDataset = () => {
-    const dataset = buildWorkingDataset({ config: cfg, examResults, pdfSources, comparison });
+    const dataset = buildWorkingDataset({ config: cfg, examResults, pdfSources, comparison, scanRuns, tasDraft });
     downloadFile('results.json', new Blob([JSON.stringify(dataset)], { type: 'application/json' }));
-  };
-
-  const importDataset = async event => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    if (examResults.length > 0 && !window.confirm('This will replace the current exam scans with the saved results. Continue?')) return;
-
-    onDatasetImporting(true);
-    try {
-      onRestoreDataset(readWorkingDataset(JSON.parse(await file.text()), pdfSources));
-    } catch (error) {
-      window.alert(`Invalid JSON file: ${error.message}`);
-    } finally {
-      onDatasetImporting(false);
-    }
   };
 
   return (
@@ -66,29 +47,54 @@ export function ResultsFileExchange({
         <button class="export-card" disabled={examResults.length === 0} onClick={exportRawResults}>
           <strong>Download detailed responses</strong><span>raw_results.csv · every answer position</span>
         </button>
-        <button class="export-card" disabled={examResults.length === 0} onClick={exportDataset}>
-          <strong>Download working dataset</strong><span>results.json · resume this scan later</span>
+        <button class="export-card" disabled={!canSaveDataset} onClick={exportDataset}>
+          <strong>Download working dataset</strong><span>results.json · save setup, scans and review progress</span>
         </button>
       </div>
-      <div class="import-grid">
-        <div class="import-card">
-          <div><strong>Import raw results</strong><p>Bring an existing raw_results.csv back into the review workflow.</p></div>
-          <div class="import-card__controls">
-            <div class="field-group">
-              <label htmlFor="resultsCsvImportPage">Its page 1 corresponds to PDF page</label>
-              <input disabled={currentlyScanning} type="number" id="resultsCsvImportPage" value={importCsvPage}
-                onInput={event => setImportCsvPage(event.target.value)} />
-            </div>
-            <input type="file" disabled={currentlyScanning} id="resultsCsvImport" class="form-control"
-              aria-label="Import results from raw_results.csv" accept="text/csv"
-              onChange={event => onImportRawCsv(event.target.files)} />
+    </section>
+  );
+}
+
+export function ResultsImports({
+  pdfSources, hasWorkToReplace, busy, importCsvPage, setImportCsvPage,
+  onImportRawCsv, onDatasetImporting, onRestoreDataset
+}) {
+  const importDataset = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || busy) return;
+
+    onDatasetImporting(true);
+    try {
+      const dataset = readWorkingDataset(JSON.parse(await file.text()), pdfSources);
+      if (hasWorkToReplace && !window.confirm('Replace the current exam setup and results with this saved work?')) return;
+      onRestoreDataset(dataset);
+    } catch (error) {
+      window.alert(`Invalid JSON file: ${error.message}`);
+    } finally {
+      onDatasetImporting(false);
+    }
+  };
+
+  return (
+    <section class="import-grid scan-imports" aria-label="Import exam work">
+      <div class="import-card">
+        <div><strong>Import raw results</strong><p>Bring an existing raw_results.csv back into the review workflow.</p></div>
+        <div class="import-card__controls">
+          <div class="field-group">
+            <label htmlFor="resultsCsvImportPage">Its page 1 corresponds to PDF page</label>
+            <input disabled={busy} type="number" id="resultsCsvImportPage" value={importCsvPage}
+              onInput={event => setImportCsvPage(event.target.value)} />
           </div>
+          <input type="file" disabled={busy} id="resultsCsvImport" class="form-control"
+            aria-label="Import results from raw_results.csv" accept="text/csv"
+            onChange={event => onImportRawCsv(event.target.files)} />
         </div>
-        <div class="import-card">
-          <div><strong>Resume saved work</strong><p>Restore scanner settings, answer keys and reviewed results. Open the original PDFs to preview or export papers.</p></div>
-          <input type="file" disabled={currentlyScanning} id="resultsJsonImport" class="form-control"
-            aria-label="Import results from results.json" accept="application/json" onChange={importDataset} />
-        </div>
+      </div>
+      <div class="import-card">
+        <div><strong>Resume saved work</strong><p>Load results.json to restore setup, scan progress and reviewed results.</p></div>
+        <input type="file" disabled={busy} id="resultsJsonImport" class="form-control"
+          aria-label="Import results from results.json" accept="application/json" onChange={importDataset} />
       </div>
     </section>
   );

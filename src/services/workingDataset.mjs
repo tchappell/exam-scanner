@@ -1,5 +1,7 @@
 import { fixAnswers } from '../examDomain.mjs';
 import { restoreComparison, serializeComparison } from './comparisonImport.mjs';
+import { normaliseScanRuns } from './scanWorkflow.mjs';
+import { normaliseTasDraft } from './tasDraft.mjs';
 
 function sourceMetadata({ id, name, hash, numPages, scanConfig }) {
   return {
@@ -11,7 +13,12 @@ function sourceMetadata({ id, name, hash, numPages, scanConfig }) {
   };
 }
 
-export function buildWorkingDataset({ config, examResults, pdfSources, comparison }) {
+function legacyPdfSource({ scanConfig, ...source }) {
+  // A hash-only dataset can't establish the range used for its saved papers.
+  return source;
+}
+
+export function buildWorkingDataset({ config, examResults, pdfSources, comparison, scanRuns, tasDraft }) {
   const recoverableSources = new Set(pdfSources.filter(source => source.hash).map(source => source.id));
   const savedResults = examResults.map(result => ({
     ...result,
@@ -24,9 +31,12 @@ export function buildWorkingDataset({ config, examResults, pdfSources, compariso
   }));
   return {
     pdfSources: pdfSources.map(sourceMetadata),
+    scanRuns: normaliseScanRuns(scanRuns, pdfSources),
+    tasDraft: normaliseTasDraft(tasDraft),
     twoSided: config.twoSided,
     hasMultiAnswer: config.hasMultiAnswer,
-    multiAnswerQuestions: config.hasMultiAnswer ? config.multiAnswerQuestions ?? {} : {},
+    multiAnswerQuestions: config.multiAnswerQuestions ?? {},
+    showQuestionable: config.showQuestionable,
     marking: config.marking,
     examResults: savedResults,
     answerKey: config.answerKey,
@@ -65,12 +75,12 @@ export function readWorkingDataset(dataset, loadedPdfSources = []) {
   if (legacy && dataset.pdfHash) {
     if (typeof dataset.pdfHash !== 'string') throw new Error('The saved PDF hash is invalid.');
     const known = loadedPdfSources.find(source => source.hash === dataset.pdfHash);
-    legacySource = known ?? sourceMetadata({ id: dataset.pdfHash, hash: dataset.pdfHash });
+    legacySource = known ? legacyPdfSource(known) : sourceMetadata({ id: dataset.pdfHash, hash: dataset.pdfHash });
     pdfSources = [legacySource];
   } else if (legacy) {
     // A single open PDF supplied the page previews for legacy datasets saved without a hash.
     const attached = loadedPdfSources.filter(source => source.pdf);
-    legacySource = attached.length === 1 ? attached[0] : undefined;
+    legacySource = attached.length === 1 ? legacyPdfSource(attached[0]) : undefined;
     pdfSources = legacySource ? [legacySource] : [];
   } else {
     pdfSources = restorePdfSources(dataset.pdfSources, loadedPdfSources);
@@ -81,6 +91,7 @@ export function readWorkingDataset(dataset, loadedPdfSources = []) {
     answerKey: dataset.answerKey ?? {},
     hasMultiAnswer: Boolean(dataset.hasMultiAnswer),
     multiAnswerQuestions: dataset.multiAnswerQuestions ?? {},
+    ...(typeof dataset.showQuestionable === 'boolean' ? { showQuestionable: dataset.showQuestionable } : {}),
     ...(dataset.marking ? { marking: dataset.marking } : {})
   };
   const sourceIds = new Set(pdfSources.map(source => source.id));
@@ -107,5 +118,10 @@ export function readWorkingDataset(dataset, loadedPdfSources = []) {
     }
     return loaded;
   });
-  return { config, examResults, pdfSources, comparison: restoreComparison(dataset.comparison ?? {}) };
+  return {
+    config, examResults, pdfSources,
+    scanRuns: normaliseScanRuns(dataset.scanRuns, pdfSources),
+    tasDraft: normaliseTasDraft(dataset.tasDraft),
+    comparison: restoreComparison(dataset.comparison ?? {})
+  };
 }

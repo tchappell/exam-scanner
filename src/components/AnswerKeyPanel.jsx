@@ -5,10 +5,6 @@ import { ModalDialog } from './ModalDialog.jsx';
 import { configuredQuestionCount, createAnswerSheetRequestPdf, scannedStudentCount } from '../services/pdfArtifacts.mjs';
 import { downloadFile } from '../util/downloads.mjs';
 
-const EMPTY_DETAILS = {
-  name: '', email: '', workPh: '', mobilePh: '', facultySchool: '', unitCode: '', examType: '',
-  year: '', semester: '', description: '', questionCount: '', studentCount: null, comments: ''
-};
 const REMEMBERED_FIELDS = ['name', 'email', 'workPh', 'mobilePh', 'facultySchool'];
 const STORAGE_KEY = 'exam-scanner.request-details.v1';
 const AUTO_COMPLETE = {
@@ -43,37 +39,38 @@ function RequestField({ field, label, type, placeholder, width, value, onChange 
   );
 }
 
-export function AnswerKeyPanel({ cfg, setCfg, pdfBatches, missingPdfCount = 0, currentlyScanning }) {
+export function AnswerKeyPanel({ cfg, setCfg, pdfBatches, tasDraft, setTasDraft, currentlyScanning }) {
   const [requestOpen, setRequestOpen] = useState(false);
-  const [details, setDetails] = useState(() => ({ ...EMPTY_DETAILS, ...loadRememberedDetails() }));
+  const [contactDetails, setContactDetails] = useState(loadRememberedDetails);
   const [rememberDetails, setRememberDetails] = useState(() => localStorage.getItem(STORAGE_KEY) !== null);
   const [manualMarks, setManualMarks] = useState(false);
-  const [appendScans, setAppendScans] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
-  const appendableScans = pdfBatches.map(({ pdf, scanConfig }) => ({
+  const scans = pdfBatches.map(({ pdf, numPages, scanConfig }) => ({
     pdf,
-    config: { ...cfg, startAt: 1, endAt: pdf.numPages, hasMarker: false, ...scanConfig }
+    config: { twoSided: cfg.twoSided, startAt: 1, endAt: numPages ?? pdf?.numPages, hasMarker: false, ...scanConfig }
   }));
-  const studentCount = details.studentCount ?? `${appendableScans.length > 0
-    ? appendableScans.reduce((count, scan) => count + scannedStudentCount(scan.config), 0)
-    : 1}`;
+  const appendableScans = scans.filter(scan => scan.pdf);
+  const missingPdfCount = scans.length - appendableScans.length;
+  const batchCounts = scans.map(scan => scannedStudentCount(scan.config)).filter(Number.isFinite);
+  const details = {
+    ...tasDraft,
+    ...contactDetails,
+    year: tasDraft.year ?? `${new Date().getFullYear()}`,
+    questionCount: tasDraft.questionCount ?? `${configuredQuestionCount(cfg.answerKey)}`,
+    studentCount: tasDraft.studentCount ?? `${batchCounts.length ? batchCounts.reduce((total, count) => total + count, 0) : 1}`
+  };
 
   useEffect(() => {
     if (!rememberDetails) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(
-      REMEMBERED_FIELDS.map(field => [field, details[field]])
+      REMEMBERED_FIELDS.map(field => [field, contactDetails[field]])
     )));
-  }, [details, rememberDetails]);
+  }, [contactDetails, rememberDetails]);
 
-  const setField = (field, value) => setDetails(previous => ({ ...previous, [field]: value }));
-  const openRequest = () => {
-    setDetails(previous => ({
-      ...previous,
-      year: previous.year || `${new Date().getFullYear()}`,
-      questionCount: previous.questionCount || `${configuredQuestionCount(cfg.answerKey)}`
-    }));
-    setRequestOpen(true);
+  const setField = (field, value) => {
+    const setDetails = REMEMBERED_FIELDS.includes(field) ? setContactDetails : setTasDraft;
+    setDetails(previous => ({ ...previous, [field]: value }));
   };
 
   const exportRequest = async () => {
@@ -84,9 +81,9 @@ export function AnswerKeyPanel({ cfg, setCfg, pdfBatches, missingPdfCount = 0, c
       if (!response.ok) throw new Error(`Could not load the TAS request form (${response.status}).`);
       const blob = await createAnswerSheetRequestPdf({
         config: cfg,
-        details: { ...details, studentCount },
+        details,
         templateBytes: await response.arrayBuffer(),
-        appendedScans: appendScans ? appendableScans : []
+        appendedScans: tasDraft.appendScans ? appendableScans : []
       });
       downloadFile('TAS-request.pdf', blob);
     } catch (error) {
@@ -102,7 +99,7 @@ export function AnswerKeyPanel({ cfg, setCfg, pdfBatches, missingPdfCount = 0, c
         manualMarks={manualMarks} setManualMarks={setManualMarks} />
       <AnswerKeyGrid cfg={cfg} setCfg={setCfg} currentlyScanning={currentlyScanning} manualMarks={manualMarks} />
       <div class="answer-key-tools">
-        <button type="button" class="btn btn-sm btn-link" onClick={openRequest}>Create TAS request PDF...</button>
+        <button type="button" class="btn btn-sm btn-link" onClick={() => setRequestOpen(true)}>Create TAS request PDF...</button>
       </div>
       <ModalDialog open={requestOpen} title="Create TAS request PDF" onClose={() => setRequestOpen(false)} size="wide">
         <div class="container-fluid" id="answer-key-request-form">
@@ -110,7 +107,7 @@ export function AnswerKeyPanel({ cfg, setCfg, pdfBatches, missingPdfCount = 0, c
             <div class="row" key={rowIndex}>
               {row.map(([field, label, type, placeholder, width]) => (
                 <RequestField key={field} field={field} label={label} type={type} placeholder={placeholder}
-                  width={width} value={field === 'studentCount' ? studentCount : details[field]}
+                  width={width} value={details[field] ?? ''}
                   onChange={value => setField(field, value)} />
               ))}
             </div>
@@ -118,9 +115,9 @@ export function AnswerKeyPanel({ cfg, setCfg, pdfBatches, missingPdfCount = 0, c
           <div class="request-dialog__footer">
             <div class="request-dialog__options">
               <label class="compact-check" htmlFor="appendScans">
-                <input type="checkbox" checked={appendScans && appendableScans.length > 0}
-                  disabled={appendableScans.length === 0} id="appendScans"
-                  onChange={event => setAppendScans(event.target.checked)} />
+                <input type="checkbox" checked={tasDraft.appendScans === true}
+                  disabled={scans.length === 0} id="appendScans"
+                  onChange={event => setField('appendScans', event.target.checked)} />
                 {appendableScans.length > 1 ? `Append ${appendableScans.length} scanned PDFs` : 'Append scanned PDF'}
               </label>
               <label class="compact-check" htmlFor="rememberRequestDetails">
