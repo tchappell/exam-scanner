@@ -39,31 +39,40 @@ function yieldToControls() {
 }
 
 /** Render pages sequentially and retain only the compact crops, never recognition results. */
-export async function renderComparisonCrops({ pdf, differences, examResults, signal, onCrop, onError, onProgress }) {
+export async function renderComparisonCrops({ pdf, getPdf = () => pdf, differences, examResults, signal, onCrop, onError, onProgress }) {
   if (signal?.aborted) return;
-  const pages = new Map();
+  const documents = new Map();
   for (const diff of differences) {
     if (signal?.aborted) return;
     const region = comparisonCropRegion(diff);
     const result = examResults[diff.i];
-    if (!region || !result || Number(result.page) !== Number(diff.page)) {
+    if (!region || !result || Number(result.page) !== Number(diff.page)
+        || (diff.sourceId && result.sourceId !== diff.sourceId)) {
       onError(diff.id, new Error('The paper or comparison field is no longer available.'));
       continue;
     }
+    const sourcePdf = getPdf(result);
+    if (!sourcePdf) {
+      onError(diff.id, new Error('Load the source PDF to show this image.'));
+      continue;
+    }
     const pageNumber = Number(result.page) + region.side;
+    if (!documents.has(sourcePdf)) documents.set(sourcePdf, new Map());
+    const pages = documents.get(sourcePdf);
     if (!pages.has(pageNumber)) pages.set(pageNumber, []);
     pages.get(pageNumber).push({ diff, region, result });
   }
 
-  let completed = differences.length - [...pages.values()].reduce((total, items) => total + items.length, 0);
+  const pages = [...documents].flatMap(([sourcePdf, byPage]) => [...byPage].map(([pageNumber, items]) => ({ sourcePdf, pageNumber, items })));
+  let completed = differences.length - pages.reduce((total, page) => total + page.items.length, 0);
   if (signal?.aborted) return;
   onProgress?.({ completed, total: differences.length });
-  for (const [pageNumber, items] of pages) {
+  for (const { sourcePdf, pageNumber, items } of pages) {
     await yieldToControls();
     if (signal?.aborted) return;
     let canvas;
     try {
-      canvas = await renderPdfPageCanvas(pdf, pageNumber, RENDER_SCALE, { signal });
+      canvas = await renderPdfPageCanvas(sourcePdf, pageNumber, RENDER_SCALE, { signal });
       for (const { diff, region, result } of items) {
         await yieldToControls();
         if (signal?.aborted) return;

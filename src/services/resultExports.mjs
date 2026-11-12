@@ -11,16 +11,22 @@ function exportSurname(surname) {
   return `${surname}            `.substring(0, 12).toUpperCase();
 }
 
+function filenameForResult(pdfSources, fallbackName) {
+  const namesBySource = new Map(pdfSources.map(source => [source.id, source.name]));
+  return result => namesBySource.get(result.sourceId) ?? result.pdfName ?? fallbackName ?? 'filename.pdf';
+}
+
 export function buildResultsCsvRows({
   examResults,
   answerKey,
   multiAnswerQuestions = {},
   marking,
   pdfName,
+  pdfSources = [],
   date = new Date(),
   unitCode = DEFAULT_UNIT_CODE
 }) {
-  const filename = pdfName ?? 'filename.pdf';
+  const filename = filenameForResult(pdfSources, pdfName);
 
   return [
     ['Unit', 'Exam date', 'Student number', 'Surname', 'Initial', 'Score', 'Scanned file', 'Page in File'],
@@ -31,7 +37,7 @@ export function buildResultsCsvRows({
       exportSurname(result.surname),
       result.initials.toUpperCase(),
       calculateScore(result.answers, answerKey, multiAnswerQuestions, marking),
-      filename,
+      filename(result),
       result.page
     ])
   ];
@@ -40,10 +46,11 @@ export function buildResultsCsvRows({
 export function buildRawResultsCsvRows({
   examResults,
   pdfName,
+  pdfSources = [],
   date = new Date(),
   unitCode = DEFAULT_UNIT_CODE
 }) {
-  const filename = pdfName ?? 'filename.pdf';
+  const filename = filenameForResult(pdfSources, pdfName);
 
   return [
     [
@@ -57,7 +64,7 @@ export function buildRawResultsCsvRows({
       result.student_number,
       exportSurname(result.surname),
       result.initials.replaceAll(' ', '').toUpperCase(),
-      filename,
+      filename(result),
       result.page,
       ...result.answers.map(answer => normaliseAnswer(answer).trimEnd()),
       ...Array(Math.max(0, QUESTION_COUNT - result.answers.length)).fill('')

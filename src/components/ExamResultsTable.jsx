@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { ANSWER_OPTIONS, calculateScore, fixAnswers } from '../examDomain.mjs';
+import { combinedPdfPage, pdfSourceForResult } from '../services/pdfSources.mjs';
 import { updateExamResult } from '../services/resultState.mjs';
 import { EmptyState } from './WorkspaceSection.jsx';
 
@@ -15,21 +16,24 @@ const ANSWER_COMBINATIONS = [
     .sort((left, right) => left.length - right.length || left.localeCompare(right))
 ];
 
-function ResultRow({ cfg, result, index, setExamResults, onDownloadAnnotatedPdf, onViewOriginalPdf }) {
+function ResultRow({ cfg, result, index, setExamResults, pdfSources, canAnnotatePdf, canViewOriginalPdf, onDownloadAnnotatedPdf, onViewOriginalPdf }) {
+  const page = combinedPdfPage(pdfSources, result.sourceId, result.page);
+  const filename = pdfSourceForResult(pdfSources, result)?.name ?? result.pdfName;
+  const location = `${result.page}${pdfSources.length > 1 && filename ? ` in ${filename}` : ''}`;
   return (
-    <div class="exam-row" data-testid="exam-result" data-page={result.page}
+    <div class="exam-row" data-testid="exam-result" data-page={result.page} data-document-page={page} data-source-id={result.sourceId}
       style={{ '--qcount': cfg.twoSided ? 160 : 40 }}>
       <div class="result-paper-actions">
-        <button type="button" class="result-preview-button" disabled={!onViewOriginalPdf}
+        <button type="button" class="result-preview-button" disabled={!canViewOriginalPdf(result)}
           onClick={() => onViewOriginalPdf?.(result)} title="View original scanned paper"
-          aria-label={`View original PDF for page ${result.page}`}>
+          aria-label={`View original PDF for page ${location}`}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6" /><path d="m15 15 6 6" /></svg>
         </button>
-        {'homographies' in result ? <button type="button" class="result-pdf-button" onClick={() => onDownloadAnnotatedPdf(result)}
-          aria-label={`Download annotated PDF for page ${result.page}`} title="Download marked PDF">PDF</button> : null}
+        {canAnnotatePdf(result) ? <button type="button" class="result-pdf-button" onClick={() => onDownloadAnnotatedPdf(result)}
+          aria-label={`Download annotated PDF for page ${location}`} title="Download marked PDF">PDF</button> : null}
       </div>
-      <div class="text-end pe-1">{result.page}</div>
+      <div class="text-end pe-1" title={filename ? `${filename} · page ${result.page}` : undefined}>{page ?? result.page}</div>
       <div><input autocomplete="off" type="text" data-field="student-number" value={result.student_number}
         class="w-100" onChange={event => updateExamResult(setExamResults, index, { student_number: event.target.value })} /></div>
       <div><input autocomplete="off" type="text" data-field="surname" value={result.surname}
@@ -68,7 +72,7 @@ function ResultsSearch({ onSearch }) {
   );
 }
 
-export function ExamResultsTable({ cfg, examResults, setExamResults, onDownloadAnnotatedPdf, onViewOriginalPdf }) {
+export function ExamResultsTable({ cfg, examResults, setExamResults, pdfSources, canAnnotatePdf, canViewOriginalPdf, onDownloadAnnotatedPdf, onViewOriginalPdf }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
@@ -98,7 +102,13 @@ export function ExamResultsTable({ cfg, examResults, setExamResults, onDownloadA
         const question = Number.parseInt(column.slice(1), 10);
         return collator.compare(left.answers[question], right.answers[question]) * direction;
       }
-      if (column === 'page') return (left.page - right.page) * direction;
+      if (column === 'page') {
+        const leftPage = combinedPdfPage(pdfSources, left.sourceId, left.page);
+        const rightPage = combinedPdfPage(pdfSources, right.sourceId, right.page);
+        return (leftPage !== null && rightPage !== null ? leftPage - rightPage
+          : pdfSources.findIndex(source => source.id === left.sourceId) - pdfSources.findIndex(source => source.id === right.sourceId)
+            || left.page - right.page) * direction;
+      }
       if (column === 'score') {
         return (calculateScore(left.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking)
           - calculateScore(right.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking)) * direction;
@@ -142,8 +152,9 @@ export function ExamResultsTable({ cfg, examResults, setExamResults, onDownloadA
             </button>
           ))}
         </div>
-        {shownExams.slice(first, last).map(index => <ResultRow key={examResults[index].page} cfg={cfg}
+        {shownExams.slice(first, last).map(index => <ResultRow key={`${examResults[index].sourceId ?? ''}-${examResults[index].page}-${index}`} cfg={cfg}
           result={examResults[index]} index={index} setExamResults={setExamResults}
+          pdfSources={pdfSources} canAnnotatePdf={canAnnotatePdf} canViewOriginalPdf={canViewOriginalPdf}
           onDownloadAnnotatedPdf={onDownloadAnnotatedPdf} onViewOriginalPdf={onViewOriginalPdf} />)}
       </div>
       <div class="results-footer">

@@ -6,7 +6,10 @@ export function examResultFilename(result) {
 }
 
 export async function hashBlob(blob) {
-  const data = await blob.arrayBuffer();
+  return hashBytes(await blob.arrayBuffer());
+}
+
+export async function hashBytes(data) {
   const digest = await crypto.subtle.digest('SHA-1', data);
   return Array.from(new Uint8Array(digest))
     .map(value => value.toString(16).padStart(2, '0'))

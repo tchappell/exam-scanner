@@ -35,7 +35,7 @@ function isCanvasGradebook(csv) {
 
 const DEFAULT_COMMENT = 'Your marked test answer sheet is attached. Please contact the teaching team if you believe any response has been recorded incorrectly.';
 
-function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, matches, createAnnotatedPdf }) {
+function PerStudentPdfExport({ examResults, cfg, assignment, canvasCSV, matches, canAnnotatePdf, createAnnotatedPdf }) {
   const [apiKey, setApiKey] = useState('');
   const [courseCode, setCourseCode] = useState('');
   const [exportMode, setExportMode] = useState('grades-and-pdfs');
@@ -43,21 +43,21 @@ function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, mat
   const [comment, setComment] = useState(DEFAULT_COMMENT);
   const updateGrades = exportMode !== 'pdfs-only';
   const attachPdf = exportMode !== 'grades-only';
+  const unavailablePdfs = [...matches.keys()].filter(index => !canAnnotatePdf(examResults[index])).length;
   const assignmentCodePart = assignment.fullName.split('(').at(-1);
   const assignmentCode = Number.parseInt(assignmentCodePart.slice(0, -1), 10);
 
   const exportZip = async () => {
-    const { PDFDocument } = await import('pdf-lib');
     const filenames = new Set();
     const zip = await createZip('CanvasUpload.zip');
-    const sourceDocument = attachPdf ? await PDFDocument.load(await pdf.getData()) : null;
+    const sourceDocuments = new WeakMap();
     const grades = [];
 
     for (let index = 0; index < examResults.length; index++) {
       const canvasIndex = matches.get(index);
       if (typeof canvasIndex === 'undefined') continue;
       const result = examResults[index];
-      if (attachPdf && !('homographies' in result)) continue;
+      if (attachPdf && !canAnnotatePdf(result)) continue;
 
       let hash = '00000000';
       let filename = null;
@@ -68,7 +68,7 @@ function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, mat
         filenames.add(filename);
         filename += '.pdf';
 
-        const blob = await createAnnotatedPdf(cfg, result, sourceDocument);
+        const blob = await createAnnotatedPdf(result, sourceDocuments);
         hash = (await hashBlob(blob)).slice(0, 8);
         addBlobToZip(zip, filename, blob);
       }
@@ -124,13 +124,17 @@ function PerStudentPdfExport({ examResults, cfg, pdf, assignment, canvasCSV, mat
       </div>
       {!updateGrades ? <p class="form-text">The upload script will attach exam PDFs without changing assignment grades.</p> : null}
       {!attachPdf ? <p class="form-text">The upload script will update grades without creating PDF files.</p> : null}
+      {attachPdf && unavailablePdfs > 0 ? <p class="form-text">
+        {unavailablePdfs} matched {unavailablePdfs === 1 ? 'exam will' : 'exams will'} be skipped because the source PDF or scan registration is missing.
+      </p> : null}
       <p class="form-text">The API key is written only into the downloaded script; this web app never stores it.</p>
-      <button type="button" class="btn btn-outline-primary" onClick={exportZip}>Export upload ZIP</button>
+      <button type="button" class="btn btn-outline-primary" onClick={exportZip}
+        disabled={matches.size === 0 || (attachPdf && unavailablePdfs === matches.size)}>Export upload ZIP</button>
     </div>
   );
 }
 
-export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAnnotatedPdf, onViewPage }) {
+export function CanvasTransfer({ examResults, setExamResults, cfg, pdfSources, canAnnotatePdf, createAnnotatedPdf, onViewPage }) {
   const desktopApp = isDesktopApp();
   const [mode, setMode] = useState(desktopApp ? 'direct' : 'csv');
   const [canvasCSV, setCanvasCSV] = useState(null);
@@ -188,7 +192,8 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
       </div> : null}
 
       {mode === 'direct' ? <DirectCanvasTransfer examResults={examResults} setExamResults={setExamResults}
-        cfg={cfg} pdf={pdf} createAnnotatedPdf={createAnnotatedPdf} onViewPage={onViewPage} /> : <>
+        cfg={cfg} pdfSources={pdfSources} canAnnotatePdf={canAnnotatePdf}
+        createAnnotatedPdf={createAnnotatedPdf} onViewPage={onViewPage} /> : <>
       {!canvasCSV ? (
         <div class="canvas-upload">
           <div><strong>Load a Canvas Gradebook CSV</strong><p>Match scanned student numbers and select the assignment to update.</p></div>
@@ -197,7 +202,7 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
         </div>
       ) : <>
         <CanvasRosterMatch examResults={examResults} setExamResults={setExamResults} canvasCSV={canvasCSV} matchResult={matchResult}
-          onViewPage={onViewPage}
+          pdfSources={pdfSources} onViewPage={onViewPage}
           onMatch={(examIndex, canvasIndex) => pairExamWithCanvas(setExamResults, examIndex, canvasCSV[canvasIndex])}
           onUnmatch={examIndex => updateExamResult(setExamResults, examIndex, { canvasMatch: null })}
           onCorrectNumber={(examIndex, value) => updateExamResult(setExamResults, examIndex, {
@@ -226,9 +231,10 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdf, createAn
         </> : null}
       </div>
 
-      {selectedAssignment && pdf && examResults.some(result => 'homographies' in result) ? (
-        <PerStudentPdfExport examResults={examResults} cfg={cfg} pdf={pdf} assignment={selectedAssignment}
-          canvasCSV={canvasCSV} matches={examResultMatches} createAnnotatedPdf={createAnnotatedPdf} />
+      {selectedAssignment && examResults.some(canAnnotatePdf) ? (
+        <PerStudentPdfExport examResults={examResults} cfg={cfg} assignment={selectedAssignment}
+          canvasCSV={canvasCSV} matches={examResultMatches}
+          canAnnotatePdf={canAnnotatePdf} createAnnotatedPdf={createAnnotatedPdf} />
       ) : null}
       </>}
     </section>

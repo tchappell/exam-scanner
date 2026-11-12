@@ -29,6 +29,22 @@ npm run test:e2e
 installed Microsoft Edge browser to run the recognition fixtures; it takes a
 few minutes on the current development machine.
 
+## Scan multiple PDF batches
+
+Choose the first PDF and scan it as usual. Use **Append PDF** to add another
+batch, check its page range, and select **Scan and append exams**. The new
+papers join the reviewed results with the same answer key. Page numbers in
+the results table run across batches in import order. CSVs record the original
+filename and page within that file.
+
+You can also resume `results.json` and scan a late batch before reloading any
+of the original PDFs. Reload an original file when you need its previews or
+marked PDF exports. The app matches it by hash, even if it has been renamed.
+
+In **Create TAS request PDF**, select **Append scanned PDF** or **Append scanned PDFs**
+to include the loaded batches in order. The export uses each batch's page range
+and skips any designated marker sheets.
+
 ## Review official scanning results
 
 Scan the papers and make your corrections first. When the official results
@@ -59,8 +75,8 @@ settings and select **Compare results** again. Restored comparisons with missing
 images wait for **Prepare comparison images** rather than starting automatically.
 
 Download the **working dataset** to save your corrected exams, comparison
-decisions, and manual Canvas pairings. Resume that JSON file when continuing
-later; load the same source PDF to use paper previews and annotated PDF exports.
+decisions, and manual Canvas pairings. The JSON saves the PDF references for
+each batch so you can continue the review later.
 
 ### Match papers to Canvas students
 

@@ -384,6 +384,29 @@ select {
   margin: 0;
 }
 
+.pdf-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.pdf-batch-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pdf-batch-controls .field-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.pdf-batch-controls button {
+  flex-shrink: 0;
+}
+
 .pdf-card h3 {
   overflow: hidden;
   margin: 0;
@@ -1463,6 +1486,11 @@ select {
 
 .canvas-match-card small {
   color: var(--muted);
+}
+
+.canvas-match-card__source {
+  grid-column: 2;
+  overflow-wrap: anywhere;
 }
 
 .canvas-match-card__number {

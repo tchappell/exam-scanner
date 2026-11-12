@@ -20,10 +20,10 @@ function ToggleOption({ id, label, description, ariaLabel, checked, disabled, on
   );
 }
 
-export function ScannerConfig({ config, setConfig, pdf, currentlyScanning }) {
+export function ScannerConfig({ config, setConfig, setScanConfig, pdf, currentlyScanning, keepAnswerKey }) {
   const setNumber = field => event => {
     const value = Number.parseInt(event.target.value, 10);
-    setConfig(previous => ({ ...previous, [field]: value }));
+    setScanConfig(field, value);
   };
 
   const setBoolean = field => event => {
@@ -36,24 +36,24 @@ export function ScannerConfig({ config, setConfig, pdf, currentlyScanning }) {
         <div class="field-group">
           <label htmlFor="startAt">Start page</label>
           <input autocomplete="off" id="startAt" name="startAt" type="number" min={1}
-            max={pdf ? pdf.numPages : undefined} step={1} disabled={currentlyScanning}
+            max={pdf ? pdf.numPages : undefined} step={1} disabled={currentlyScanning || !pdf}
             value={config.startAt} onChange={setNumber('startAt')} />
         </div>
         <span class="page-range__divider" aria-hidden="true">to</span>
         <div class="field-group">
           <label htmlFor="endAt">End page</label>
           <input autocomplete="off" id="endAt" name="endAt" type="number" min={1}
-            max={pdf ? pdf.numPages : undefined} step={1} disabled={currentlyScanning}
+            max={pdf ? pdf.numPages : undefined} step={1} disabled={currentlyScanning || !pdf}
             value={config.endAt} onChange={setNumber('endAt')} />
         </div>
       </div>
       <div class="setup-toggle-grid">
         <ToggleOption id="twoSided" label="Two-sided sheets" ariaLabel="Two-sided?"
-          description="Read questions 1–160 across paired pages."
-          checked={config.twoSided} disabled={currentlyScanning} onChange={setBoolean('twoSided')} />
+          description={keepAnswerKey ? 'Use the same sheet layout across batches.' : 'Read questions 1–160 across paired pages.'}
+          checked={config.twoSided} disabled={currentlyScanning || keepAnswerKey} onChange={setBoolean('twoSided')} />
         <ToggleOption id="hasMarker" label="Marker sheet included" ariaLabel="Has marker sheet?"
-          description="Use the first sheet as the answer key."
-          checked={config.hasMarker} disabled={currentlyScanning} onChange={setBoolean('hasMarker')} />
+          description={keepAnswerKey ? 'Skip the first sheet and keep the current answer key.' : 'Use the first sheet as the answer key.'}
+          checked={config.hasMarker} disabled={currentlyScanning || !pdf} onChange={event => setScanConfig('hasMarker', event.target.checked)} />
         <ToggleOption id="hasMultiAnswer" label="Multi-answer questions" ariaLabel="Contains multi-answer questions?"
           description="Choose exact-set questions individually below."
           checked={config.hasMultiAnswer} disabled={currentlyScanning} onChange={setBoolean('hasMultiAnswer')} />

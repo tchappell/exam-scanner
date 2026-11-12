@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildComparisonFromRows,
   buildComparisonReview,
+  COMBINED_COMPARISON_SOURCE,
   restoreComparison,
   serializeComparison
 } from '../src/services/comparisonImport.mjs';
@@ -46,13 +47,91 @@ test('comparison import validates headers and page identity instead of overwriti
     [headings, csvRow({ page: '1banana' })],
     [headings, csvRow({ page: 0 })],
     [headings, csvRow(), csvRow()],
-    [headings, csvRow(), csvRow({ page: 2, filename: 'another-exam.pdf' })],
+    [headings, csvRow(), csvRow({ filename: 'another-exam.pdf' }), csvRow({ filename: '' })],
     [headings]
   ]) {
     const comparison = buildComparisonFromRows(rows, { filename: 'raw_results.csv', scannerConfig });
     assert.equal(typeof comparison.error, 'string');
     assert.equal('results' in comparison, false);
   }
+});
+
+const pdfSources = [
+  { id: 'first', name: 'batch-one.pdf', numPages: 3, scanConfig: { startAt: 1, endAt: 3, hasMarker: true } },
+  { id: 'second', name: 'batch-two.pdf', numPages: 3, scanConfig: { startAt: 2, endAt: 3, hasMarker: false } }
+];
+const currentResult = (sourceId, page) => ({
+  sourceId, page, student_number: '12345678', surname: 'EXAMPLE', initials: 'AB', answers: ['A']
+});
+
+test('multi-file comparison matches overlapping page numbers by source PDF', () => {
+  const comparison = buildComparisonFromRows([
+    headings,
+    csvRow({ filename: 'C:\\scans\\BATCH-ONE.pdf', answers: ['B'] }),
+    csvRow({ filename: 'batch-two.pdf', answers: ['C'] })
+  ], { filename: 'raw_results.csv', scannerConfig });
+  const restored = restoreComparison(JSON.parse(JSON.stringify(serializeComparison(comparison))));
+  const review = buildComparisonReview([
+    currentResult('first', 1), currentResult('second', 1), currentResult('second', 2)
+  ], restored, {}, { pdfSources });
+
+  assert.equal(review.matchedCount, 2);
+  assert.deepEqual(review.ambiguousPages, []);
+  assert.deepEqual(review.currentOnlyPages, [{ sourceId: 'second', pdfName: 'batch-two.pdf', page: 2 }]);
+  assert.deepEqual(review.diffs.map(({ id, sourceId, origValue }) => [id, sourceId, origValue]), [
+    ['first:1:answers:0', 'first', 'B'], ['second:1:answers:0', 'second', 'C']
+  ]);
+  assert.match(buildComparisonReview([], restored, {}, {
+    pdfSources: pdfSources.slice(0, 1)
+  }).error, /Could not match batch-two\.pdf/);
+});
+
+test('a differently named CSV compares only with the selected batch', () => {
+  const comparison = buildComparisonFromRows([
+    headings, csvRow({ filename: 'official.pdf', answers: ['B'] })
+  ], { filename: 'official.csv', scannerConfig });
+  const results = [currentResult('first', 1), currentResult('second', 2)];
+  assert.match(buildComparisonReview(results, comparison, {}, { pdfSources }).error, /Choose the source PDF/);
+  const review = buildComparisonReview(results, {
+    ...comparison, cfg_sourceId: 'second', cfg_firstPage: 2
+  }, {}, { pdfSources });
+
+  assert.equal(review.matchedCount, 1);
+  assert.deepEqual(review.currentOnlyPages, []);
+  assert.equal(review.diffs[0].i, 1);
+  assert.equal(review.diffs[0].sourceId, 'second');
+});
+
+test('raw results from distinct named files can still be compared without the PDFs', () => {
+  const comparison = buildComparisonFromRows([
+    headings,
+    csvRow({ filename: 'batch-one.pdf', answers: ['B'] }),
+    csvRow({ filename: 'batch-two.pdf', answers: ['C'] })
+  ], { filename: 'raw_results.csv', scannerConfig });
+  const review = buildComparisonReview([
+    { ...currentResult(undefined, 1), pdfName: 'batch-one.pdf' },
+    { ...currentResult(undefined, 1), pdfName: 'batch-two.pdf' }
+  ], comparison);
+
+  assert.equal(review.matchedCount, 2);
+  assert.equal(new Set(review.diffs.map(diff => diff.id)).size, 2);
+  assert.deepEqual(review.diffs.map(diff => [diff.i, diff.origValue]), [[0, 'B'], [1, 'C']]);
+});
+
+test('a combined TAS comparison follows exported ranges and skips the marker', () => {
+  const comparison = buildComparisonFromRows([
+    headings,
+    csvRow({ filename: 'official.pdf', page: 1, answers: ['B'] }),
+    csvRow({ filename: 'official.pdf', page: 2, answers: ['C'] })
+  ], { filename: 'official.csv', scannerConfig });
+  const review = buildComparisonReview([
+    currentResult('first', 3), currentResult('second', 2)
+  ], { ...comparison, cfg_sourceId: COMBINED_COMPARISON_SOURCE, cfg_firstPage: 2 }, {}, { pdfSources });
+
+  assert.equal(review.matchedCount, 2);
+  assert.deepEqual(review.diffs.map(({ sourceId, page, origValue }) => [sourceId, page, origValue]), [
+    ['first', 3, 'B'], ['second', 2, 'C']
+  ]);
 });
 
 test('comparison default page offset accounts for both marker pages and keeps an explicit offset', () => {

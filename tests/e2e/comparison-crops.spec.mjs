@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, rgb } from 'pdf-lib';
 
 import { buildRawResultsCsvRows } from '../../src/services/resultExports.mjs';
 import { createCSV } from '../../src/util/csv.mjs';
@@ -106,7 +106,7 @@ test('every comparison field gets a saved crop without recognition or changing r
 
   await panel.locator('[data-difference="1:studentNum"]').getByRole('button', { name: 'Keep my result' }).click();
   const saved = await downloadDataset(page);
-  expect(saved.examResults[0]).toEqual(dataset.examResults[0]);
+  expect(saved.examResults[0]).toEqual({ ...dataset.examResults[0], sourceId: saved.pdfSources[0].id });
   expect(Object.keys(saved.comparison.cropImages).sort()).toEqual([...expectedIds].sort());
   for (const crop of Object.values(saved.comparison.cropImages)) {
     expect(crop.src).toMatch(/^data:image\/jpeg;base64,/);
@@ -138,7 +138,7 @@ test('older results without saved alignment still receive approximate crops on b
   await panel.getByRole('button', { name: 'Compare results', exact: true }).click();
   await expectAllCrops(panel);
   const saved = await downloadDataset(page);
-  expect(saved.examResults[0]).toEqual(dataset.examResults[0]);
+  expect(saved.examResults[0]).toEqual({ ...dataset.examResults[0], sourceId: saved.pdfSources[0].id });
   expect(Object.values(saved.comparison.cropImages)).toHaveLength(5);
   expect(Object.values(saved.comparison.cropImages).every(crop => crop.approximate)).toBe(true);
   await expect(panel.locator('[data-difference="1:answers:159"]')).toContainText('Approximate crop');
@@ -217,7 +217,7 @@ test('explicit cancellation unlocks comparison settings and prevents late images
   await expect(panel.getByRole('button', { name: 'Prepare remaining images', exact: true })).toBeVisible();
   const cancelled = await downloadDataset(page);
   expect(Object.keys(cancelled.comparison.cropImages)).toEqual(['1:studentNum']);
-  expect(cancelled.examResults[0]).toEqual(dataset.examResults[0]);
+  expect(cancelled.examResults[0]).toEqual({ ...dataset.examResults[0], sourceId: cancelled.pdfSources[0].id });
   await panel.getByLabel('Student numbers', { exact: true }).uncheck();
   await expect(panel.locator('.comparison-difference')).toHaveCount(0);
   await expect(panel.getByText('Settings changed. Choose Compare results to update the differences.', { exact: true })).toBeVisible();
@@ -229,5 +229,75 @@ test('explicit cancellation unlocks comparison settings and prevents late images
   // A UI round trip lets a stale conversion finish, then the saved state proves it cannot write into the new comparison.
   const saved = await downloadDataset(page);
   expect(Object.keys(saved.comparison.cropImages).sort()).toEqual(['1:answers:0', '1:answers:159']);
-  expect(saved.examResults[0]).toEqual(dataset.examResults[0]);
+  expect(saved.examResults[0]).toEqual({ ...dataset.examResults[0], sourceId: saved.pdfSources[0].id });
+});
+
+test('comparison crops and original-page previews use the correct batch after reattaching a PDF', async ({ page }) => {
+  test.setTimeout(45_000);
+  const createSource = async (id, color) => {
+    const pdf = await PDFDocument.create();
+    const sheet = pdf.addPage([595, 842]);
+    sheet.drawRectangle({ x: 0, y: 0, width: 595, height: 842, color });
+    const buffer = Buffer.from(await pdf.save());
+    const file = { name: `${id}.pdf`, mimeType: 'application/pdf', buffer };
+    return { file, metadata: { id, name: file.name, hash: createHash('sha1').update(buffer).digest('hex'), numPages: 1 } };
+  };
+  const first = await createSource('first-batch', rgb(1, 0, 0));
+  const second = await createSource('second-batch', rgb(0, 1, 0));
+  const pdfSources = [first.metadata, second.metadata];
+  const examResults = pdfSources.map(source => ({
+    sourceId: source.id, page: 1, student_number: '12345678', surname: 'TEST', initials: 'AB', answers: ['A']
+  }));
+  const compareRows = buildRawResultsCsvRows({
+    examResults: examResults.map((result, index) => ({ ...result, answers: [index === 0 ? 'B' : 'C'] })), pdfSources
+  });
+  const colorChannel = async (image, channel) => {
+    await expect(image).toBeVisible();
+    await expect.poll(() => image.evaluate((img, index) => {
+      if (!img.complete || !img.naturalWidth) return false;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext('2d');
+      context.drawImage(img, 0, 0, 1, 1);
+      const channels = context.getImageData(0, 0, 1, 1).data;
+      return channels[index] > 220 && channels[1 - index] < 30;
+    }, channel)).toBe(true);
+  };
+
+  await page.goto('/');
+  const pdfInput = page.locator('#pdf-upload');
+  await pdfInput.setInputFiles(first.file);
+  await expect(page.locator('.pdf-card__preview img')).toBeVisible();
+  await importDataset(page, { pdfSources, twoSided: false, answerKey: {}, examResults });
+  const comparisonInput = page.getByLabel('Import another scan for comparison');
+  await expect(comparisonInput).toBeEnabled();
+  await comparisonInput.setInputFiles({
+    name: 'official-raw_results.csv', mimeType: 'text/csv', buffer: Buffer.from(createCSV(compareRows))
+  });
+  const panel = page.getByRole('region', { name: 'Compare another scan' });
+  await panel.getByRole('button', { name: 'Compare results', exact: true }).click();
+  const firstDifference = panel.locator('[data-difference="first-batch:1:answers:0"]');
+  const secondDifference = panel.locator('[data-difference="second-batch:1:answers:0"]');
+  await colorChannel(firstDifference.locator('img'), 0);
+  await expect(secondDifference.getByText('Load the source PDF to show this image.')).toBeVisible();
+  await firstDifference.getByRole('button', { name: 'Keep my result' }).click();
+
+  await pdfInput.setInputFiles(second.file);
+  await expect(page.locator('.pdf-card__preview img')).toHaveAttribute('alt', /second-batch\.pdf/);
+  await panel.getByRole('button', { name: 'Prepare remaining images' }).click();
+  await expect(secondDifference).toContainText('PDF page 2 (second-batch.pdf, page 1)');
+  await colorChannel(secondDifference.locator('img'), 1);
+  await secondDifference.getByRole('button', { name: 'View PDF page' }).click();
+  const viewer = page.getByRole('dialog');
+  await expect(viewer.getByRole('heading')).toContainText('second-batch.pdf');
+  await colorChannel(viewer.getByRole('img'), 1);
+  await viewer.getByRole('button', { name: 'Close dialog' }).click();
+  await secondDifference.getByRole('button', { name: 'Use imported result' }).click();
+
+  const saved = await downloadDataset(page);
+  expect(saved.examResults.map(result => [result.sourceId, result.answers[0]])).toEqual([
+    ['first-batch', 'A'], ['second-batch', 'C']
+  ]);
+  expect(Object.keys(saved.comparison.cropImages)).toEqual(['first-batch:1:answers:0', 'second-batch:1:answers:0']);
+  expect(Object.keys(saved.comparison.decisions)).toEqual(['first-batch:1:answers:0', 'second-batch:1:answers:0']);
 });

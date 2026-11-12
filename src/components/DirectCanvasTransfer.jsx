@@ -26,7 +26,7 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : `${error}`;
 }
 
-export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, createAnnotatedPdf, onViewPage }) {
+export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdfSources, canAnnotatePdf, createAnnotatedPdf, onViewPage }) {
   const [baseUrl, setBaseUrl] = useState(DEFAULT_CANVAS_URL);
   const [accessToken, setAccessToken] = useState('');
   const [rememberToken, setRememberToken] = useState(false);
@@ -67,8 +67,8 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
   const missingIdentifiers = students.filter(student => normaliseStudentNum(
     student.integrationId || student.sisUserId || student.loginId || ''
   ) === null).length;
-  const canAttachAll = Boolean(pdf) && [...matchResult.examResultMatches.keys()]
-    .every(index => 'homographies' in examResults[index]);
+  const canAttachAll = matchResult.examResultMatches.size > 0 && [...matchResult.examResultMatches.keys()]
+    .every(index => canAnnotatePdf(examResults[index]));
 
   useEffect(() => {
     let active = true;
@@ -195,18 +195,7 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
     cancelUpload.current = false;
     setError(null);
     setUpload({ running: true, completed: 0, total: matched.length, updated: 0, unchanged: 0, failed: [] });
-    let sourceDocument = null;
-    try {
-      if (includePdfs) {
-        const { PDFDocument } = await import('pdf-lib');
-        sourceDocument = await PDFDocument.load(await pdf.getData());
-      }
-    } catch (caught) {
-      const message = errorMessage(caught);
-      setError(`Could not prepare the source PDF: ${message}`);
-      setUpload({ running: false, completed: 0, total: matched.length, updated: 0, unchanged: 0, failed: [] });
-      return;
-    }
+    const sourceDocuments = new WeakMap();
 
     let completed = 0;
     let updated = 0;
@@ -220,7 +209,7 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
         let pdfBytes = null;
         let hash = '00000000';
         if (includePdfs) {
-          const blob = await createAnnotatedPdf(cfg, result, sourceDocument);
+          const blob = await createAnnotatedPdf(result, sourceDocuments);
           hash = (await hashBlob(blob)).slice(0, 8);
           pdfBytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
         }
@@ -331,7 +320,7 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdf, cr
         Those students can still be paired manually by name.
       </div> : null}
       <CanvasRosterMatch examResults={examResults} setExamResults={setExamResults} canvasCSV={canvasCSV} matchResult={matchResult}
-        onViewPage={onViewPage}
+        pdfSources={pdfSources} onViewPage={onViewPage}
         onMatch={(examIndex, canvasIndex) => pairExamWithCanvas(setExamResults, examIndex, canvasCSV[canvasIndex])}
         onUnmatch={examIndex => updateExamResult(setExamResults, examIndex, { canvasMatch: null })}
         onCorrectNumber={(examIndex, value) => updateExamResult(setExamResults, examIndex, {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 
+import { combinedPdfPage, pdfSourceForResult } from '../services/pdfSources.mjs';
 import { updateExamResult } from '../services/resultState.mjs';
 
 function MatchCard({ children, selected, onSelect, side }) {
@@ -10,19 +11,20 @@ function MatchCard({ children, selected, onSelect, side }) {
 }
 
 function PaperCard({ result, resultIndex, selected, onSelect, onViewPage, onCorrectNumber,
-  matchedStudent, onUnmatch, duplicateStudent, onMatchDuplicate }) {
+  matchedStudent, onUnmatch, duplicateStudent, onMatchDuplicate, paperLocation }) {
   const [number, setNumber] = useState(result.student_number ?? '');
   useEffect(() => setNumber(result.student_number ?? ''), [result.student_number]);
 
   return <article class="canvas-match-paper" data-exam-index={resultIndex}>
-    <MatchCard selected={selected} onSelect={onSelect} side={`PDF page ${result.page}`}>
+    <MatchCard selected={selected} onSelect={onSelect} side={paperLocation.pageLabel}>
       <span>{result.surname || '(surname blank)'}, {result.initials || '(initials blank)'}</span>
       <strong class="canvas-match-card__number">{`${result.student_number ?? ''}`.trim() || '(student number blank)'}</strong>
+      {paperLocation.sourceLabel ? <small class="canvas-match-card__source">{paperLocation.sourceLabel}</small> : null}
     </MatchCard>
     {matchedStudent ? <p class="canvas-match-paper__status">Matched to {matchedStudent}</p> : null}
     <div class="canvas-match-paper__actions">
       <button type="button" class="btn btn-sm btn-outline-secondary" disabled={!onViewPage}
-        onClick={() => onViewPage?.(result.page, `PDF page ${result.page} — student details`)}>
+        onClick={() => onViewPage?.(result.page, `${paperLocation.title} — student details`, result.sourceId)}>
         View paper
       </button>
       {onMatchDuplicate ? <button type="button" class="btn btn-sm btn-outline-primary" onClick={onMatchDuplicate}>
@@ -36,7 +38,7 @@ function PaperCard({ result, resultIndex, selected, onSelect, onViewPage, onCorr
         event.preventDefault();
         onCorrectNumber(resultIndex, number.trim());
       }}>
-        <label htmlFor={`match-number-${resultIndex}`}>Student number on PDF page {result.page}</label>
+        <label htmlFor={`match-number-${resultIndex}`}>Student number on {paperLocation.title}</label>
         <div class="canvas-match-paper__number-edit">
           <input id={`match-number-${resultIndex}`} type="text" inputMode="numeric" value={number}
             onInput={event => setNumber(event.target.value)} />
@@ -50,11 +52,19 @@ function PaperCard({ result, resultIndex, selected, onSelect, onViewPage, onCorr
 }
 
 export function CanvasRosterMatch({ examResults, setExamResults, canvasCSV, matchResult, onMatch,
-  onUnmatch, onCorrectNumber, onViewPage }) {
+  onUnmatch, onCorrectNumber, onViewPage, pdfSources }) {
   const [matchSelection, setMatchSelection] = useState(null);
   const { examResultMatches, unmatchedExamResults, unmatchedStudents, duplicateGroups = [], manualExamIndices = new Set() } = matchResult;
   const duplicateExams = new Set(duplicateGroups.flatMap(group => group.examIndices));
   const ordinaryUnmatched = unmatchedExamResults.filter(index => !duplicateExams.has(index));
+  const selectedPaper = matchSelection?.[0] === 'exam' ? examResults[matchSelection[1]] : null;
+  const paperLocation = result => {
+    const source = pdfSourceForResult(pdfSources, result);
+    const page = combinedPdfPage(pdfSources, result.sourceId, result.page);
+    const pageLabel = page === null ? 'PDF' : `PDF page ${page}`;
+    const sourceLabel = source && pdfSources.length > 1 ? `${source.name ?? 'Saved PDF'}, page ${result.page}` : null;
+    return { pageLabel, sourceLabel, title: sourceLabel ? `${pageLabel} (${sourceLabel})` : pageLabel };
+  };
 
   useEffect(() => setMatchSelection(null), [examResults, canvasCSV]);
 
@@ -86,12 +96,13 @@ export function CanvasRosterMatch({ examResults, setExamResults, canvasCSV, matc
   };
 
   const paper = (resultIndex, group = null) => {
+    const result = examResults[resultIndex];
     const studentRow = examResultMatches.get(resultIndex);
     const candidateRow = group?.studentRows.length === 1 ? group.studentRows[0] : null;
-    return <PaperCard key={resultIndex} result={examResults[resultIndex]} resultIndex={resultIndex}
+    return <PaperCard key={resultIndex} result={result} resultIndex={resultIndex} paperLocation={paperLocation(result)}
       selected={matchSelection?.[0] === 'exam' && matchSelection[1] === resultIndex}
       onSelect={() => unmatchedExamResults.includes(resultIndex) && chooseMatch('exam', resultIndex)}
-      onViewPage={onViewPage} onCorrectNumber={correctNumber}
+      onViewPage={pdfSourceForResult(pdfSources, result)?.pdf ? onViewPage : null} onCorrectNumber={correctNumber}
       matchedStudent={studentRow === undefined ? null : canvasCSV[studentRow][0]}
       onUnmatch={onUnmatch && manualExamIndices.has(resultIndex) ? () => onUnmatch(resultIndex) : null}
       duplicateStudent={candidateRow === null ? null : canvasCSV[candidateRow][0]}
@@ -119,8 +130,8 @@ export function CanvasRosterMatch({ examResults, setExamResults, canvasCSV, matc
     </div> : null}
     {(unmatchedExamResults.length > 0 || unmatchedStudents.length > 0) ? <div class="canvas-matches">
       <p>Select one paper and one Canvas student to pair them. Pairing does not change the recorded student number.</p>
-      {matchSelection ? <p class="canvas-match-selection" role="status">
-        {matchSelection[0] === 'exam' ? `PDF page ${examResults[matchSelection[1]]?.page} selected. Choose a Canvas student.`
+      {selectedPaper || matchSelection?.[0] === 'student' ? <p class="canvas-match-selection" role="status">
+        {selectedPaper ? `${paperLocation(selectedPaper).title} selected. Choose a Canvas student.`
           : `${canvasCSV[matchSelection[1]]?.[0]} selected. Choose a paper.`}
         {' '}<button type="button" class="btn btn-sm btn-link" onClick={() => setMatchSelection(null)}>Cancel selection</button>
       </p> : null}

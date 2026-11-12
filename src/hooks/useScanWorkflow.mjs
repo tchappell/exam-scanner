@@ -2,17 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { createBrowserScannerAdapter } from '../services/browserScannerAdapter.mjs';
 import { attachPdfMetadata, scanDocument } from '../services/scanWorkflow.mjs';
 
-export function useScanWorkflow({ pdf, config, setConfig, scannerClient, onScanStart }) {
+export function useScanWorkflow({ source, config, setConfig, scannerClient, onBatchReplaced }) {
   const [progress, setProgress] = useState(null);
   const [stage, setStage] = useState(null);
   const [results, setResults] = useState([]);
   const [issues, setIssues] = useState([]);
   const abortRef = useRef(null);
 
-  const reportIssue = useCallback((issueStage, error, page = null) => {
+  const reportIssue = useCallback((issueStage, error, page = null, pdfName = null) => {
     const message = error instanceof Error ? error.message : `${error}`;
     console.error(`${issueStage}${page === null ? '' : ` (page ${page})`}:`, error);
-    setIssues(previous => [...previous, { stage: issueStage, page, message }]);
+    setIssues(previous => [...previous, { stage: issueStage, page, message, pdfName }]);
   }, []);
 
   useEffect(() => scannerClient.subscribeToDiagnostics(error => {
@@ -21,13 +21,13 @@ export function useScanWorkflow({ pdf, config, setConfig, scannerClient, onScanS
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const createCallbacks = useCallback(() => ({
+  const createCallbacks = useCallback(({ useMarkerKey }) => ({
     onStage: setStage,
     onProgress: ({ completed, total }) => setProgress([completed, total]),
-    onResult: result => setResults(previous => [...previous, result]),
-    onAnswerKey: answerKey => setConfig(previous => ({ ...previous, answerKey })),
-    onIssue: issue => reportIssue(issue.stage, issue.error, issue.error?.pageNumber ?? issue.page)
-  }), [reportIssue, setConfig]);
+    onResult: result => setResults(previous => [...previous, { ...result, sourceId: source.id }]),
+    onAnswerKey: useMarkerKey ? answerKey => setConfig(previous => ({ ...previous, answerKey })) : undefined,
+    onIssue: issue => reportIssue(issue.stage, issue.error, issue.error?.pageNumber ?? issue.page, source.name)
+  }), [reportIssue, setConfig, source]);
 
   const run = useCallback(async operation => {
     const controller = new AbortController();
@@ -50,38 +50,57 @@ export function useScanWorkflow({ pdf, config, setConfig, scannerClient, onScanS
       abortRef.current.abort();
       return;
     }
-    if (!pdf || config.endAt < config.startAt) return;
-    if (results.length > 0 && !window.confirm('This will erase current exam scans. Are you sure?')) return;
+    if (!source?.pdf) return;
+    const { startAt, endAt } = config;
+    if (!Number.isInteger(startAt) || !Number.isInteger(endAt) || startAt < 1 || endAt < startAt || endAt > source.numPages) {
+      reportIssue('Could not start scan', new Error(`Enter a page range from 1 to ${source.numPages}.`), null, source.name);
+      return;
+    }
+    const hasBatchResults = results.some(result => result.sourceId === source.id);
+    const hasOtherResults = results.some(result => result.sourceId !== source.id);
+    if (hasBatchResults && !window.confirm(`Rescan ${source.name}? This replaces the reviewed results for this PDF.`)) return;
 
-    setResults([]);
     setIssues([]);
-    onScanStart?.();
-    await run(signal => scanDocument({
-      scanner: createBrowserScannerAdapter({ pdf, scannerClient }),
-      config,
-      signal,
-      callbacks: createCallbacks()
-    }));
-  }, [config, createCallbacks, pdf, results.length, run, scannerClient, onScanStart]);
+    await run(async signal => {
+      const callbacks = createCallbacks({ useMarkerKey: !hasOtherResults });
+      const scanned = await scanDocument({
+        scanner: createBrowserScannerAdapter({ pdf: source.pdf, scannerClient }),
+        config,
+        signal,
+        callbacks: hasBatchResults ? { ...callbacks, onResult: undefined, onAnswerKey: undefined } : callbacks
+      });
+      if (hasBatchResults && !scanned.cancelled && scanned.results.length > 0) {
+        const replacement = scanned.results.map(result => ({ ...result, sourceId: source.id }));
+        setResults(previous => {
+          const start = previous.findIndex(result => result.sourceId === source.id);
+          if (start < 0) return [...previous, ...replacement];
+          return [...previous.slice(0, start), ...replacement,
+            ...previous.slice(start).filter(result => result.sourceId !== source.id)];
+        });
+        if (scanned.answerKey) callbacks.onAnswerKey?.(scanned.answerKey);
+        onBatchReplaced();
+      }
+    });
+  }, [config, createCallbacks, onBatchReplaced, reportIssue, results, run, scannerClient, source]);
 
   const matchLoadedExamsToPdf = useCallback(async loadedResults => {
     if (abortRef.current !== null) {
       abortRef.current.abort();
       return;
     }
-    if (!pdf) return;
+    if (!source?.pdf) return;
 
     const scanMarker = config.hasMarker && window.confirm('Scan marker page?');
     setResults([]);
     await run(signal => attachPdfMetadata({
-      scanner: createBrowserScannerAdapter({ pdf, scannerClient }),
+      scanner: createBrowserScannerAdapter({ pdf: source.pdf, scannerClient }),
       config,
       results: loadedResults,
       scanMarker,
       signal,
-      callbacks: createCallbacks()
+      callbacks: createCallbacks({ useMarkerKey: scanMarker })
     }));
-  }, [config, createCallbacks, pdf, run, scannerClient]);
+  }, [config, createCallbacks, run, scannerClient, source]);
 
   return {
     progress,

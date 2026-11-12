@@ -76,3 +76,23 @@ test('results export applies shared question weights', () => {
 
   assert.equal(rows[1][5], 3.5);
 });
+
+test('both CSV formats retain each batch filename and its local page number', () => {
+  const batches = [
+    { id: 'first', name: 'first.pdf' },
+    { id: 'late', name: 'late.pdf' }
+  ];
+  const options = {
+    pdfSources: batches,
+    examResults: [
+      { ...examResults[0], sourceId: 'first', page: 1 },
+      { ...examResults[0], sourceId: 'late', page: 1 },
+      { ...examResults[0], pdfName: 'imported.pdf', page: 12 }
+    ],
+    answerKey: { 0: { A: true } },
+    date: '2026-09-15'
+  };
+  const expected = [['first.pdf', 1], ['late.pdf', 1], ['imported.pdf', 12]];
+  assert.deepEqual(buildResultsCsvRows(options).slice(1).map(row => row.slice(6, 8)), expected);
+  assert.deepEqual(buildRawResultsCsvRows(options).slice(1).map(row => row.slice(5, 7)), expected);
+});

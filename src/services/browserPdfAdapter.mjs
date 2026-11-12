@@ -1,26 +1,32 @@
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
+import { PDFWorker, getDocument } from 'pdfjs-dist';
 
 let pdfWorker = null;
 
 function ensurePdfWorker() {
   if (pdfWorker === null) {
-    pdfWorker = new Worker(
+    const port = new Worker(
       new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url),
       { type: 'module' }
     );
-    GlobalWorkerOptions.workerPort = pdfWorker;
+    pdfWorker = PDFWorker.create({ port });
   }
+  return pdfWorker;
 }
 
-export async function loadBrowserPdf(file) {
-  ensurePdfWorker();
-  const data = new Uint8Array(await file.arrayBuffer());
-  return getDocument({ data }).promise;
+export async function loadBrowserPdf(bytes) {
+  const data = new Uint8Array(bytes);
+  // The application owns the worker so destroying one document leaves other batches available.
+  const task = getDocument({ data, worker: ensurePdfWorker() });
+  try {
+    return await task.promise;
+  } catch (error) {
+    await task.destroy();
+    throw error;
+  }
 }
 
 export async function renderPdfPageCanvas(pdf, pageNumber, scale, { signal } = {}) {
   signal?.throwIfAborted();
-  ensurePdfWorker();
   const page = await pdf.getPage(pageNumber);
   let canvas;
   let renderTask;
@@ -71,7 +77,12 @@ export async function renderPdfPageBitmap(pdf, pageNumber, scale = 4) {
   return createImageBitmap(canvas);
 }
 
-export async function renderPdfPagePreview(pdf, pageNumber, scale = 1) {
-  const canvas = await renderPdfPageCanvas(pdf, pageNumber, scale);
-  return canvas.convertToBlob({ type: 'image/png' });
+export async function renderPdfPagePreview(pdf, pageNumber, scale = 1, options) {
+  const canvas = await renderPdfPageCanvas(pdf, pageNumber, scale, options);
+  try {
+    return await canvas.convertToBlob({ type: 'image/png' });
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }

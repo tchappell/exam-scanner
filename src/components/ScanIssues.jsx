@@ -3,10 +3,10 @@ export function ScanIssues({ issues, onDismiss }) {
 
   const groups = [];
   for (const issue of issues) {
-    const key = `${issue.stage}\n${issue.message}`;
+    const key = `${issue.stage}\n${issue.message}\n${issue.pdfName ?? ''}`;
     let group = groups.find(item => item.key === key);
     if (!group) {
-      group = { key, stage: issue.stage, message: issue.message, pages: [] };
+      group = { key, stage: issue.stage, message: issue.message, pdfName: issue.pdfName, pages: [] };
       groups.push(group);
     }
     if (issue.page !== null && !group.pages.includes(issue.page)) group.pages.push(issue.page);
@@ -27,6 +27,7 @@ export function ScanIssues({ issues, onDismiss }) {
         {groups.map(group => (
           <li key={group.key}>
             <strong>{group.stage}</strong>
+            {group.pdfName ? ` — ${group.pdfName}` : ''}
             {group.pages.length > 0 ? ` — ${group.pages.length === 1 ? 'page' : 'pages'} ${group.pages.join(', ')}` : ''}:
             {' '}{group.message || 'The scanner could not complete this page.'}
           </li>

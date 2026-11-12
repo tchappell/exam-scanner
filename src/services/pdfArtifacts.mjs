@@ -46,7 +46,15 @@ function answerPosition(question, option) {
   };
 }
 
-export async function createAnswerSheetRequestPdf({ config, details, templateBytes, appendedPdfBytes = null }) {
+async function loadSourceDocument(PDFDocument, sourcePdf) {
+  if (sourcePdf instanceof PDFDocument) return sourcePdf;
+  return PDFDocument.load(await (sourcePdf.getData?.() ?? sourcePdf));
+}
+
+export async function createAnswerSheetRequestPdf({
+  config, details, templateBytes, appendedPdfBytes = null,
+  appendedScans = appendedPdfBytes ? [{ pdf: appendedPdfBytes, config }] : []
+}) {
   const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
   const pdfDocument = await PDFDocument.load(templateBytes);
   const form = pdfDocument.getForm();
@@ -100,9 +108,9 @@ export async function createAnswerSheetRequestPdf({ config, details, templateByt
     }
   }
 
-  if (appendedPdfBytes) {
-    const appendedDocument = await PDFDocument.load(appendedPdfBytes);
-    const copiedPages = await pdfDocument.copyPages(appendedDocument, appendedScanPageIndices(config));
+  for (const scan of appendedScans) {
+    const appendedDocument = await loadSourceDocument(PDFDocument, scan.pdf);
+    const copiedPages = await pdfDocument.copyPages(appendedDocument, appendedScanPageIndices(scan.config));
     for (const copiedPage of copiedPages) pdfDocument.addPage(copiedPage);
   }
 
@@ -149,15 +157,17 @@ function scannedAnswerPosition(question) {
   };
 }
 
-export async function createAnnotatedExamPdf(config, result, sourcePdf) {
+export async function createAnnotatedExamPdf(config, result, sourcePdf, sourceDocuments) {
   const {
     PDFDocument, rgb, LineCapStyle, LineJoinStyle, pushGraphicsState, popGraphicsState,
     setStrokingColor, setLineWidth, setLineCap, setLineJoin, moveTo, lineTo, stroke
   } = await import('pdf-lib');
   const outputDocument = await PDFDocument.create();
-  const sourceDocument = sourcePdf instanceof PDFDocument
-    ? sourcePdf
-    : await PDFDocument.load(await sourcePdf.getData());
+  let sourceDocument = sourceDocuments?.get(sourcePdf);
+  if (!sourceDocument) {
+    sourceDocument = await loadSourceDocument(PDFDocument, sourcePdf);
+    sourceDocuments?.set(sourcePdf, sourceDocument);
+  }
   const pageIndices = [result.page - 1, ...(config.twoSided ? [result.page] : [])];
   const pages = [];
   for (const copiedPage of await outputDocument.copyPages(sourceDocument, pageIndices)) {
@@ -167,7 +177,6 @@ export async function createAnnotatedExamPdf(config, result, sourcePdf) {
   const squareColor = rgb(0.5, 0.5, 0.5);
   const correctColor = rgb(0, 0.65, 0.12);
   const incorrectColor = rgb(0.9, 0.08, 0.1);
-  const { height } = pages[0].getSize();
   const optionIndex = { A: 0, B: 1, C: 2, D: 3, E: 4 };
   const multiAnswerQuestions = config.hasMultiAnswer ? (config.multiAnswerQuestions ?? {}) : {};
 
@@ -175,7 +184,7 @@ export async function createAnnotatedExamPdf(config, result, sourcePdf) {
     const position = scannedAnswerPosition(question);
     const x = X_STARTS[position.column] + X_STEP * optionIndex[option];
     const homographies = position.page === 0 ? result.homographies : result.homographies2;
-    const point = mapScanPoint(x / SCAN_SCALE, position.y / SCAN_SCALE, height, homographies);
+    const point = mapScanPoint(x / SCAN_SCALE, position.y / SCAN_SCALE, pages[position.page].getHeight(), homographies);
     if (!point) throw new Error(`Could not map question ${question + 1}, option ${option}, onto the scanned exam.`);
     return point;
   };
