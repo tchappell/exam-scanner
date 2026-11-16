@@ -107,21 +107,29 @@ test('scans both sides of a 160-question answer sheet', async ({ page }) => {
   expect(questionable).toEqual(twoSidedExpected.questionable);
 });
 
-test('a sparse initial feature match retries alignment on both sides', async ({ page }) => {
-  await page.route(/\/src\/scannerWorker\.js\?worker_file/, async route => {
-    const response = await route.fetch();
-    const workerCode = await response.text();
-    expect(workerCode).toContain('const ORB_FEATURES = 500;');
-    await route.fulfill({ response, body: workerCode.replace('const ORB_FEATURES = 500;', 'const ORB_FEATURES = 3;') });
-  });
+for (const [name, featureLimits] of [
+  ['denser feature matching', ['ORB_FEATURES = 500']],
+  ['printed corner marks', ['ORB_FEATURES = 500', 'ORB_RETRY_FEATURES = 1500']]
+]) {
+  test(`retries alignment on both sides using ${name}`, async ({ page }) => {
+    await page.route(/\/src\/scannerWorker\.js\?worker_file/, async route => {
+      const response = await route.fetch();
+      let workerCode = await response.text();
+      for (const limit of featureLimits) {
+        expect(workerCode).toContain(`const ${limit};`);
+        workerCode = workerCode.replace(`const ${limit};`, `const ${limit.split(' = ')[0]} = 3;`);
+      }
+      await route.fulfill({ response, body: workerCode });
+    });
 
-  await page.goto('/');
-  await page.locator('#pdf-upload').setInputFiles(twoSidedFixturePath);
-  await page.getByLabel('Two-sided?').check();
-  await page.getByRole('button', { name: 'Scan Exams', exact: true }).click();
-  const result = page.getByTestId('exam-result');
-  await expect(result).toHaveCount(1);
-  await expect(page.getByRole('alert')).toHaveCount(0);
-  const answers = await result.locator('select[data-question]').evaluateAll(selects => selects.map(select => select.value).join(''));
-  expect(answers).toBe(twoSidedExpected.answerPattern.repeat(twoSidedExpected.answerPatternRepeats));
-});
+    await page.goto('/');
+    await page.locator('#pdf-upload').setInputFiles(twoSidedFixturePath);
+    await page.getByLabel('Two-sided?').check();
+    await page.getByRole('button', { name: 'Scan Exams', exact: true }).click();
+    const result = page.getByTestId('exam-result');
+    await expect(result).toHaveCount(1);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    const answers = await result.locator('select[data-question]').evaluateAll(selects => selects.map(select => select.value).join(''));
+    expect(answers).toBe(twoSidedExpected.answerPattern.repeat(twoSidedExpected.answerPatternRepeats));
+  });
+}

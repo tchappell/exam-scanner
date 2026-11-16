@@ -1,5 +1,6 @@
 import cvReadyPromise from "@techstark/opencv-js";
 import predictor from './predictor2';
+import { findPageRegistrationMarks } from './services/pageRegistrationMarks.mjs';
 
 const ORB_FEATURES = 500;
 const ORB_RETRY_FEATURES = 1500;
@@ -266,13 +267,31 @@ function estimatePageAlignment(cv, mat, template, inverse, inliers, retry) {
   }
 }
 
-function alignAnswerGrids(cv, mat, template, templatePage, circles, pdfScale, matOut, retry) {
+function estimateRegistrationMarkAlignment(cv, mat, template, inverse, inliers) {
+  if (template.registrationMarks === undefined) template.registrationMarks = findPageRegistrationMarks(cv, template.mat);
+  const marks = findPageRegistrationMarks(cv, mat);
+  if (!marks || !template.registrationMarks) return null;
+
+  const label = 'the corner registration marks';
+  const matrix = fitAlignment(cv, marks.flat(), template.registrationMarks.flat(), inliers, label);
+  try {
+    return invertAlignment(cv, matrix, inverse, label);
+  } finally {
+    matrix.delete();
+  }
+}
+
+function alignAnswerGrids(cv, mat, template, templatePage, circles, pdfScale, matOut, method) {
   const inverse = new cv.Mat();
   const inlierMask = new cv.Mat();
   const homographies = [];
   const pts1 = [], pts2 = [];
+  const retry = method !== 'features';
   try {
-    const invH = estimatePageAlignment(cv, mat, template, inverse, inlierMask, retry);
+    const invH = method === 'registration-marks'
+      ? estimateRegistrationMarkAlignment(cv, mat, template, inverse, inlierMask)
+      : estimatePageAlignment(cv, mat, template, inverse, inlierMask, retry);
+    if (!invH) return null;
     const sqrSearchRadius = Math.pow(25 * pdfScale, 2);
     let next_global_drift_x = 0, next_global_drift_y = 0;
     for (let li = 0; li < known_lattices[templatePage].length; li++) {
@@ -498,27 +517,23 @@ const warpPdfPageLinear = async (bmp, templatePage, matricesOnly = false) => {
     const circles = Array.from({ length: detected.cols }, (_, i) => [
       detected.data32F[i * 3], detected.data32F[i * 3 + 1]
     ]);
-    const attempt = retry => {
+    let alignmentError;
+    for (const method of ['features', 'more-features', 'registration-marks']) {
       const matOut = matricesOnly ? null : template.mat.mat_clone();
       try {
-        return [matOut, alignAnswerGrids(cv, mat, template, templatePage, circles, pdfScale, matOut, retry)];
+        const homographies = alignAnswerGrids(cv, mat, template, templatePage, circles, pdfScale, matOut, method);
+        if (homographies) return [matOut, homographies];
       } catch (error) {
-        matOut?.delete();
-        throw error;
+        if (!(error instanceof PageAlignmentError)) {
+          matOut?.delete();
+          throw error;
+        }
+        alignmentError = error;
       }
-    };
-    try {
-      return attempt(false);
-    } catch (error) {
-      if (!(error instanceof PageAlignmentError)) throw error;
-      try {
-        return attempt(true);
-      } catch (retryError) {
-        if (!(retryError instanceof PageAlignmentError)) throw retryError;
-        const side = templatePage === 0 ? 'front-side' : 'reverse-side';
-        throw new PageAlignmentError(`Could not align this PDF page with the ${side} answer-sheet template. ${retryError.message} Check the scan quality and page order.`);
-      }
+      matOut?.delete();
     }
+    const side = templatePage === 0 ? 'front-side' : 'reverse-side';
+    throw new PageAlignmentError(`Could not align this PDF page with the ${side} answer-sheet template. ${alignmentError.message} Check the scan quality and page order.`);
   } finally {
     mat.delete();
     blurred.delete();
