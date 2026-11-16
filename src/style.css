@@ -650,11 +650,12 @@ select {
   text-transform: uppercase;
 }
 
-.answer-key-row__multi-control {
+.answer-key-toggle {
   position: relative;
 }
 
-.answer-key-row__multi-control .btn-check {
+/* Keep the checkbox focus target in the same cell as its visible label. */
+.answer-key-toggle > .btn-check {
   inset: 0;
   width: 100%;
   height: 100%;
@@ -663,7 +664,7 @@ select {
   opacity: 0;
 }
 
-.btn-check:focus-visible + .answer-key-row__multi {
+.answer-key-toggle > .btn-check:focus-visible + label {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }

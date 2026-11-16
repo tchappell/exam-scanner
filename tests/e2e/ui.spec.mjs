@@ -57,6 +57,34 @@ test('toggling a late Multi question keeps the answer key and page in place', as
   expect(await scrollPosition()).toEqual(before);
 });
 
+test('selecting A and D on question 71 keeps the answer key and page in place', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  await page.getByLabel('Two-sided?').check();
+  await page.getByLabel('Multi-answer by default').check();
+  const group = page.getByRole('group', { name: 'Correct answer for question 71', exact: true });
+  await group.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }));
+  const scrollPosition = () => group.evaluate(element => ({
+    grid: element.closest('.answer-key-grid').scrollTop,
+    page: window.scrollY
+  }));
+  const before = await scrollPosition();
+  expect(before.grid).toBeGreaterThan(0);
+
+  for (const option of ['A', 'D']) {
+    await group.locator(`label[for="ak_71_${option}"]`).click();
+    const input = group.locator(`#ak_71_${option}`);
+    await expect(input).toBeChecked();
+    await expect(input).toBeFocused();
+    expect(await scrollPosition()).toEqual(before);
+  }
+
+  await expect(group.locator('#ak_71_A')).toBeChecked();
+  await page.keyboard.press('Space');
+  await expect(group.locator('#ak_71_D')).not.toBeChecked();
+  expect(await scrollPosition()).toEqual(before);
+});
+
 test('answer type ranges and individual Multi settings override the checkbox independently of marks', async ({ page }) => {
   await page.goto('/');
   await page.locator('label[for="ak_1_A"]').click();

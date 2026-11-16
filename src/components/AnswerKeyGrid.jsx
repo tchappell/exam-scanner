@@ -1,4 +1,3 @@
-import { Fragment } from 'preact';
 import { isMultiAnswerQuestion, marksForQuestion, multiAnswerDefaultForQuestion } from '../examDomain.mjs';
 
 const OPTIONS = ['A', 'B', 'C', 'D', 'E'];
@@ -60,7 +59,7 @@ export function AnswerKeyGrid({ cfg, setCfg, currentlyScanning, editIndividual }
                       onInput={event => setQuestionMarks(question, event.target.value)} />
                   </label>
                 ) : null}
-                {editIndividual ? <div class="answer-key-row__multi-control">
+                {editIndividual ? <div class="answer-key-toggle">
                   <input
                     type="checkbox"
                     class="btn-check"
@@ -78,7 +77,7 @@ export function AnswerKeyGrid({ cfg, setCfg, currentlyScanning, editIndividual }
                   >Multi</label>
                 </div> : null}
                 <div class="answer-key-row__options" role="group" aria-label={`Correct answer for question ${question + 1}`}>
-                  {OPTIONS.map(option => <Fragment key={option}>
+                  {OPTIONS.map(option => <div class="answer-key-toggle" key={option}>
                     <input
                       type="checkbox"
                       class="btn-check"
@@ -89,7 +88,7 @@ export function AnswerKeyGrid({ cfg, setCfg, currentlyScanning, editIndividual }
                       onChange={event => setCorrectOption(question, option, event.target.checked)}
                     />
                     <label class="answer-option" htmlFor={`${prefix}${option}`}>{option}</label>
-                  </Fragment>)}
+                  </div>)}
                 </div>
               </div>
             );
