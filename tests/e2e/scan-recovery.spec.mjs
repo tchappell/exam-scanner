@@ -133,6 +133,69 @@ test('a reopened batch scans failed and unfinished papers while retaining correc
   await expect(markerA).not.toBeChecked();
 });
 
+test('a confirmed rescan clears only its batch and displays new papers as they finish', async ({ page }) => {
+  test.setTimeout(45_000);
+  await mockScanner(page);
+  await page.goto('/');
+
+  const pdfInput = page.locator('#pdf-upload');
+  const scan = page.getByRole('button', { name: 'Scan Exams', exact: true });
+  const stop = page.getByRole('button', { name: 'Stop scanning', exact: true });
+  const papers = page.getByTestId('exam-result');
+
+  await pdfInput.setInputFiles(await examPdf(2));
+  await scan.click();
+  await expect(papers).toHaveCount(2);
+  await expect(stop).toHaveCount(0);
+  const originalSource = await papers.first().getAttribute('data-source-id');
+  const originalPapers = papers.and(page.locator(`[data-source-id="${originalSource}"]`));
+  const originalAnswer = originalPapers.first().getByLabel('Question 1 response', { exact: true });
+  await originalAnswer.selectOption('B');
+
+  await pdfInput.setInputFiles({ ...await examPdf(1), name: 'extra-batch.pdf' });
+  await page.getByRole('button', { name: 'Scan and append exams', exact: true }).click();
+  await expect(papers).toHaveCount(3);
+  await expect(stop).toHaveCount(0);
+  await expect(originalAnswer).toHaveValue('B');
+  const otherPapers = papers.and(page.locator(`[data-source-id]:not([data-source-id="${originalSource}"])`));
+  const otherAnswer = otherPapers.getByLabel('Question 1 response', { exact: true });
+  await otherAnswer.selectOption('D');
+  await page.getByLabel('PDF batch', { exact: true }).selectOption(originalSource);
+
+  page.once('dialog', dialog => dialog.dismiss());
+  await scan.click();
+  await expect(originalPapers).toHaveCount(2);
+  await expect(originalAnswer).toHaveValue('B');
+
+  await page.evaluate(() => { window.mockScanner.holdPage = 1; });
+  page.once('dialog', dialog => dialog.accept());
+  await scan.click();
+  await expect.poll(() => page.evaluate(() => Boolean(window.mockScanner.release))).toBe(true);
+  await expect(originalPapers).toHaveCount(0);
+  await expect(otherAnswer).toHaveValue('D');
+
+  await page.evaluate(() => {
+    const mock = window.mockScanner;
+    const release = mock.release;
+    mock.holdPage = 2;
+    mock.release = null;
+    release();
+  });
+  await expect(stop).toBeVisible();
+  await expect(originalPapers).toHaveCount(1);
+  await expect(papers.first()).toHaveAttribute('data-source-id', originalSource);
+  await expect(originalAnswer).toHaveValue('A');
+  await expect(otherAnswer).toHaveValue('D');
+
+  await expect.poll(() => page.evaluate(() => Boolean(window.mockScanner.release))).toBe(true);
+  await stop.click();
+  await page.evaluate(() => window.mockScanner.release());
+  await expect(stop).toHaveCount(0);
+  await expect(originalPapers).toHaveCount(1);
+  await expect(otherAnswer).toHaveValue('D');
+  await expect(page.getByRole('button', { name: 'Scan missing papers', exact: true })).toBeEnabled();
+});
+
 test('setup-only datasets restore the key, batch settings and TAS draft, with imports below scanning', async ({ page }) => {
   test.setTimeout(45_000);
   const file = await examPdf(6);

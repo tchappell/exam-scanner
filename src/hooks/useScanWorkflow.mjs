@@ -47,14 +47,25 @@ export function useScanWorkflow({ source, pdfSources = source ? [source] : [], c
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const createCallbacks = useCallback(({ useMarkerKey }) => ({
-    onStage: setStage,
-    onProgress: ({ completed, total }) => setProgress([completed, total]),
-    onResult: result => setResults(previous => previous.some(item => item.sourceId === source.id && Number(item.page) === result.page)
-      ? previous : [...previous, { ...result, sourceId: source.id }]),
-    onAnswerKey: useMarkerKey ? answerKey => setConfig(previous => ({ ...previous, answerKey })) : undefined,
-    onIssue: issue => reportIssue(issue.stage, issue.error, issue.error?.pageNumber ?? issue.page, source.name)
-  }), [reportIssue, setConfig, source]);
+  const createCallbacks = useCallback(({ useMarkerKey, firstResultIndex = -1 }) => {
+    let nextIndex = firstResultIndex;
+    return {
+      onStage: setStage,
+      onProgress: ({ completed, total }) => setProgress([completed, total]),
+      onResult: result => {
+        const index = nextIndex;
+        if (nextIndex >= 0) nextIndex += 1;
+        setResults(previous => {
+          if (previous.some(item => item.sourceId === source.id && Number(item.page) === result.page)) return previous;
+          const paper = { ...result, sourceId: source.id };
+          if (index < 0) return [...previous, paper];
+          return [...previous.slice(0, index), paper, ...previous.slice(index)];
+        });
+      },
+      onAnswerKey: useMarkerKey ? answerKey => setConfig(previous => ({ ...previous, answerKey })) : undefined,
+      onIssue: issue => reportIssue(issue.stage, issue.error, issue.error?.pageNumber ?? issue.page, source.name)
+    };
+  }, [reportIssue, setConfig, source]);
 
   const saveRun = useCallback(scanRun => {
     setScanRuns(previous => previous[source.id] === scanRun ? previous : { ...previous, [source.id]: scanRun });
@@ -86,40 +97,30 @@ export function useScanWorkflow({ source, pdfSources = source ? [source] : [], c
       reportIssue('Could not start scan', new Error(`Enter a page range from 1 to ${source.numPages}.`), null, source.name);
       return;
     }
-    const hasBatchResults = results.some(result => result.sourceId === source.id);
+    const firstResultIndex = results.findIndex(result => result.sourceId === source.id);
+    const hasBatchResults = firstResultIndex >= 0;
     const hasOtherResults = results.some(result => result.sourceId !== source.id);
     if (hasBatchResults && !window.confirm(`Rescan ${source.name}? This replaces the reviewed results for this PDF.`)) return;
 
+    if (hasBatchResults) {
+      setResults(previous => previous.filter(result => result.sourceId !== source.id));
+      onBatchReplaced?.();
+    }
     setIssues([]);
-    await run(async signal => {
-      const callbacks = createCallbacks({ useMarkerKey: !hasOtherResults });
-      let nextRun = createScanRun(config);
-      if (!hasBatchResults) saveRun(nextRun);
-      const onAttempt = attempt => {
-        nextRun = recordScanAttempt(nextRun, attempt);
-        if (!hasBatchResults) saveRun(nextRun);
-      };
-      const scanned = await scanDocument({
-        scanner: createBrowserScannerAdapter({ pdf: source.pdf, scannerClient }),
-        config: nextRun.config,
-        signal,
-        callbacks: hasBatchResults
-          ? { ...callbacks, onAttempt, onResult: undefined, onAnswerKey: undefined }
-          : { ...callbacks, onAttempt }
-      });
-      if (hasBatchResults && !scanned.cancelled && scanned.results.length > 0) {
-        const replacement = scanned.results.map(result => ({ ...result, sourceId: source.id }));
-        setResults(previous => {
-          const start = previous.findIndex(result => result.sourceId === source.id);
-          if (start < 0) return [...previous, ...replacement];
-          return [...previous.slice(0, start), ...replacement,
-            ...previous.slice(start).filter(result => result.sourceId !== source.id)];
-        });
-        if (scanned.answerKey) callbacks.onAnswerKey?.(scanned.answerKey);
-        saveRun(nextRun);
-        onBatchReplaced?.();
+    let nextRun = createScanRun(config);
+    saveRun(nextRun);
+    await run(signal => scanDocument({
+      scanner: createBrowserScannerAdapter({ pdf: source.pdf, scannerClient }),
+      config: nextRun.config,
+      signal,
+      callbacks: {
+        ...createCallbacks({ useMarkerKey: !hasOtherResults, firstResultIndex }),
+        onAttempt: attempt => {
+          nextRun = recordScanAttempt(nextRun, attempt);
+          saveRun(nextRun);
+        }
       }
-    });
+    }));
   }, [config, createCallbacks, onBatchReplaced, reportIssue, results, run, saveRun, scannerClient, source]);
 
   const scanMissingPapers = async () => {
