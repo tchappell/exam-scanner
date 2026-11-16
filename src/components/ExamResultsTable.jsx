@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { ANSWER_OPTIONS, calculateScore, fixAnswers } from '../examDomain.mjs';
+import { ANSWER_OPTIONS, calculateScore, fixAnswers, multiAnswerQuestionsFor } from '../examDomain.mjs';
 import { combinedPdfPage, pdfSourceForResult } from '../services/pdfSources.mjs';
 import { updateExamResult } from '../services/resultState.mjs';
 import { EmptyState } from './WorkspaceSection.jsx';
@@ -7,7 +7,6 @@ import { EmptyState } from './WorkspaceSection.jsx';
 const range = (start, end = null) => end === null
   ? [...Array(start).keys()]
   : [...Array(end - start).keys()].map(value => value + start);
-const multiAnswerQuestionsFor = cfg => cfg.hasMultiAnswer ? (cfg.multiAnswerQuestions ?? {}) : {};
 const ANSWER_COMBINATIONS = [
   ' ',
   ...Array.from({ length: 31 }, (_, mask) => ANSWER_OPTIONS
@@ -16,7 +15,7 @@ const ANSWER_COMBINATIONS = [
     .sort((left, right) => left.length - right.length || left.localeCompare(right))
 ];
 
-function ResultRow({ cfg, result, index, setExamResults, pdfSources, canAnnotatePdf, canViewOriginalPdf, onDownloadAnnotatedPdf, onViewOriginalPdf }) {
+function ResultRow({ cfg, multiAnswerQuestions, result, index, setExamResults, pdfSources, canAnnotatePdf, canViewOriginalPdf, onDownloadAnnotatedPdf, onViewOriginalPdf }) {
   const page = combinedPdfPage(pdfSources, result.sourceId, result.page);
   const filename = pdfSourceForResult(pdfSources, result)?.name ?? result.pdfName;
   const location = `${result.page}${pdfSources.length > 1 && filename ? ` in ${filename}` : ''}`;
@@ -43,10 +42,10 @@ function ResultRow({ cfg, result, index, setExamResults, pdfSources, canAnnotate
         class="w-100" style={{ textTransform: 'uppercase' }}
         onChange={event => updateExamResult(setExamResults, index, { initials: event.target.value })} /></div>
       <div class="ps-2" data-field="score">{calculateScore(
-        result.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking
+        result.answers, cfg.answerKey, multiAnswerQuestions, cfg.marking
       )}</div>
       {fixAnswers(cfg, result.answers).map((answer, question) => {
-        const multiple = Boolean(multiAnswerQuestionsFor(cfg)[question]);
+        const multiple = Boolean(multiAnswerQuestions[question]);
         const choices = multiple ? ANSWER_COMBINATIONS : [' ', ...ANSWER_OPTIONS];
         return <div key={question}><select class="w-100" data-question={question + 1}
           aria-label={`Question ${question + 1}${multiple ? ' multi-answer response' : ' response'}`}
@@ -83,6 +82,8 @@ export function ExamResultsTable({ cfg, examResults, setExamResults, pdfSources,
       description="Your scanned exams will appear here with editable student details, answers and scores." />;
   }
 
+  const multiAnswerQuestions = multiAnswerQuestionsFor(cfg);
+
   const shownExams = range(examResults.length).filter(index => {
     if (search === '') return true;
     const value = search.toUpperCase();
@@ -110,8 +111,8 @@ export function ExamResultsTable({ cfg, examResults, setExamResults, pdfSources,
             || left.page - right.page) * direction;
       }
       if (column === 'score') {
-        return (calculateScore(left.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking)
-          - calculateScore(right.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking)) * direction;
+        return (calculateScore(left.answers, cfg.answerKey, multiAnswerQuestions, cfg.marking)
+          - calculateScore(right.answers, cfg.answerKey, multiAnswerQuestions, cfg.marking)) * direction;
       }
       return collator.compare(`${left[column]}`, `${right[column]}`) * direction;
     });
@@ -153,7 +154,7 @@ export function ExamResultsTable({ cfg, examResults, setExamResults, pdfSources,
           ))}
         </div>
         {shownExams.slice(first, last).map(index => <ResultRow key={`${examResults[index].sourceId ?? ''}-${examResults[index].page}-${index}`} cfg={cfg}
-          result={examResults[index]} index={index} setExamResults={setExamResults}
+          result={examResults[index]} index={index} setExamResults={setExamResults} multiAnswerQuestions={multiAnswerQuestions}
           pdfSources={pdfSources} canAnnotatePdf={canAnnotatePdf} canViewOriginalPdf={canViewOriginalPdf}
           onDownloadAnnotatedPdf={onDownloadAnnotatedPdf} onViewOriginalPdf={onViewOriginalPdf} />)}
       </div>

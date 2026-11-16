@@ -43,7 +43,7 @@ export function AnswerKeyPanel({ cfg, setCfg, pdfBatches, tasDraft, setTasDraft,
   const [requestOpen, setRequestOpen] = useState(false);
   const [contactDetails, setContactDetails] = useState(loadRememberedDetails);
   const [rememberDetails, setRememberDetails] = useState(() => localStorage.getItem(STORAGE_KEY) !== null);
-  const [manualMarks, setManualMarks] = useState(false);
+  const [editIndividual, setEditIndividual] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
   const scans = pdfBatches.map(({ pdf, numPages, scanConfig }) => ({
@@ -96,8 +96,8 @@ export function AnswerKeyPanel({ cfg, setCfg, pdfBatches, tasDraft, setTasDraft,
   return (
     <>
       <MarkAllocation cfg={cfg} setCfg={setCfg} currentlyScanning={currentlyScanning}
-        manualMarks={manualMarks} setManualMarks={setManualMarks} />
-      <AnswerKeyGrid cfg={cfg} setCfg={setCfg} currentlyScanning={currentlyScanning} manualMarks={manualMarks} />
+        editIndividual={editIndividual} setEditIndividual={setEditIndividual} />
+      <AnswerKeyGrid cfg={cfg} setCfg={setCfg} currentlyScanning={currentlyScanning} editIndividual={editIndividual} />
       <div class="answer-key-tools">
         <button type="button" class="btn btn-sm btn-link" onClick={() => setRequestOpen(true)}>Create TAS request PDF...</button>
       </div>

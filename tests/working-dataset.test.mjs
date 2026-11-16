@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { marksForQuestion, multiAnswerQuestionsFor } from '../src/examDomain.mjs';
 import { buildWorkingDataset, readWorkingDataset } from '../src/services/workingDataset.mjs';
 
 const original = { id: 'first', name: 'original.pdf', hash: 'first-file-hash', numPages: 2, pdf: {} };
@@ -154,4 +155,30 @@ test('working datasets keep the attempted batch range and failed physical page',
   assert.equal(restored.pdfSources[0].scanConfig.startAt, 3);
   assert.equal(restored.examResults[0].answers[0], 'B');
   assert.deepEqual(restored.examResults[0].canvasMatch, correctedResult.canvasMatch);
+});
+
+test('legacy Multi selections keep their prior meaning through migration and re-save', () => {
+  const legacy = {
+    examResults: [], hasMultiAnswer: true, multiAnswerQuestions: { 1: true, 5: true },
+    marking: { defaultMarks: 3, ranges: [{ from: 3, to: 4, marks: '' }] }
+  };
+  const restored = readWorkingDataset(legacy);
+  assert.equal(restored.config.hasMultiAnswer, false);
+  assert.deepEqual(multiAnswerQuestionsFor(restored.config), { 1: true, 5: true });
+  assert.equal(marksForQuestion(3, restored.config.marking), 0);
+  assert.deepEqual(multiAnswerQuestionsFor(readWorkingDataset({ ...legacy, hasMultiAnswer: false }).config), {});
+
+  const savedAgain = buildWorkingDataset(restored);
+  assert.equal(savedAgain.multiAnswerAllocation, true);
+  assert.deepEqual(readWorkingDataset(savedAgain).config, restored.config);
+});
+
+test('saved global Multi defaults, ranges and individual exceptions round-trip', () => {
+  const config = {
+    twoSided: true, answerKey: {}, hasMultiAnswer: true,
+    multiAnswerQuestions: { 152: true, 158: false },
+    marking: { defaultMarks: 1, ranges: [{ from: 150, to: 154, multiAnswer: false }], overrides: {} }
+  };
+  const dataset = buildWorkingDataset({ config, examResults: [], pdfSources: [] });
+  assert.deepEqual(readWorkingDataset(JSON.parse(JSON.stringify(dataset))).config, config);
 });

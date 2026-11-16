@@ -1,9 +1,8 @@
+import { multiAnswerQuestionsFor } from '../examDomain.mjs';
 import { buildRawResultsCsvRows, buildResultsCsvRows } from '../services/resultExports.mjs';
 import { buildWorkingDataset, readWorkingDataset } from '../services/workingDataset.mjs';
 import { createCSV } from '../util/csv.mjs';
 import { downloadFile } from '../util/downloads.mjs';
-
-const multiAnswerQuestionsFor = cfg => cfg.hasMultiAnswer ? (cfg.multiAnswerQuestions ?? {}) : {};
 
 export function ResultsFileExchange({
   cfg,

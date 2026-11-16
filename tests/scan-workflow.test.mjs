@@ -43,7 +43,7 @@ function secondSideResponse(answer = 'E') {
   };
 }
 
-test('scanner settings expose only enabled multi-answer questions', () => {
+test('saved scanner settings expose only the selected multi-answer questions', () => {
   assert.deepEqual(activeMultiAnswerQuestions({
     hasMultiAnswer: true,
     multiAnswerQuestions: { 1: true, 2: false, 17: true }
@@ -52,6 +52,21 @@ test('scanner settings expose only enabled multi-answer questions', () => {
     hasMultiAnswer: false,
     multiAnswerQuestions: { 1: true }
   }), []);
+});
+
+test('new scan runs freeze the effective global, range and individual modes', () => {
+  const config = {
+    startAt: 1, endAt: 2, twoSided: true, hasMultiAnswer: true,
+    multiAnswerQuestions: { 150: false, 158: true },
+    marking: { ranges: [{ from: 155, to: 159, multiAnswer: false }] }
+  };
+  const run = createScanRun(config);
+  config.multiAnswerQuestions[150] = true;
+  config.marking.ranges[0].multiAnswer = true;
+  const restored = normaliseScanRuns({ batch: run }, [{ id: 'batch', numPages: 2 }]).batch;
+  assert.deepEqual(activeMultiAnswerQuestions(restored.config).filter(question => question >= 145), [145, 146, 147, 148, 149, 151, 152, 153, 154, 158]);
+  const legacy = { ...run, config: { ...run.config, hasMultiAnswer: true, multiAnswerQuestions: { 1: true } } };
+  assert.deepEqual(activeMultiAnswerQuestions(normaliseScanRuns({ batch: legacy }, [{ id: 'batch', numPages: 2 }]).batch.config), [1]);
 });
 
 test('recognition requests are independent of imported comparison results', async () => {
@@ -157,7 +172,7 @@ test('a saved two-sided run retries only failed and unattempted papers', async (
   const abort = new AbortController();
   let run = createScanRun({
     startAt: 1, endAt: 8, twoSided: true, hasMarker: true,
-    hasMultiAnswer: true, multiAnswerQuestions: { 40: true }
+    hasMultiAnswer: false, multiAnswerQuestions: { 40: true }
   });
   const issues = [];
   const scanned = await scanDocument({

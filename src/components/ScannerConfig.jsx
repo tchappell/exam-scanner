@@ -54,8 +54,8 @@ export function ScannerConfig({ config, setConfig, setScanConfig, pdf, currently
         <ToggleOption id="hasMarker" label="Marker sheet included" ariaLabel="Has marker sheet?"
           description={keepAnswerKey ? 'Skip the first sheet and keep the current answer key.' : 'Use the first sheet as the answer key.'}
           checked={config.hasMarker} disabled={currentlyScanning || !pdf} onChange={event => setScanConfig('hasMarker', event.target.checked)} />
-        <ToggleOption id="hasMultiAnswer" label="Multi-answer questions" ariaLabel="Contains multi-answer questions?"
-          description="Choose exact-set questions individually below."
+        <ToggleOption id="hasMultiAnswer" label="Multi-answer by default" ariaLabel="Multi-answer by default"
+          description="Require an exact match to the keyed answers. Ranges and individual settings can override this."
           checked={config.hasMultiAnswer} disabled={currentlyScanning} onChange={setBoolean('hasMultiAnswer')} />
         <ToggleOption id="showQuestionable" label="Review uncertain marks" ariaLabel="List questionable scans?"
           description="Keep questionable responses in a review queue."

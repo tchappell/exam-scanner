@@ -1,7 +1,8 @@
-import { createAnswerKey, fixAnswers } from '../examDomain.mjs';
+import { createAnswerKey, fixAnswers, multiAnswerQuestionsFor } from '../examDomain.mjs';
 
 const noOp = () => {};
 
+// Saved scan runs use a flag and a flat map of the modes already resolved for recognition.
 export function activeMultiAnswerQuestions(config) {
   if (!config.hasMultiAnswer) return [];
   return Object.keys(config.multiAnswerQuestions ?? {})
@@ -22,7 +23,7 @@ const isPaperStart = (config, page) => Number.isSafeInteger(page) && page >= con
 const isMarkerPage = (config, page) => config.hasMarker && page === config.startAt;
 const markerNeedsScan = run => run.markerStatus === 'pending' || run.markerStatus === 'failed';
 
-export function createScanRun(config) {
+function buildScanRun(config) {
   return {
     config: {
       startAt: config.startAt,
@@ -37,6 +38,12 @@ export function createScanRun(config) {
   };
 }
 
+export function createScanRun(config) {
+  // Recovery uses the exact question modes that were in effect when the run started.
+  const multiAnswerQuestions = multiAnswerQuestionsFor(config);
+  return buildScanRun({ ...config, hasMultiAnswer: Object.keys(multiAnswerQuestions).length > 0, multiAnswerQuestions });
+}
+
 export function normaliseScanRuns(scanRuns, pdfSources) {
   if (!scanRuns || typeof scanRuns !== 'object') return {};
   return Object.fromEntries(pdfSources.flatMap(({ id, numPages }) => {
@@ -44,7 +51,7 @@ export function normaliseScanRuns(scanRuns, pdfSources) {
     if (!validScanRange(saved?.config, numPages) || typeof saved.config.twoSided !== 'boolean') return [];
 
     const questionCount = saved.config.twoSided ? 160 : 40;
-    const run = createScanRun({
+    const run = buildScanRun({
       ...saved.config,
       hasMarker: saved.config.hasMarker === true,
       hasMultiAnswer: saved.config.hasMultiAnswer === true,
@@ -255,7 +262,7 @@ export async function attachPdfMetadata({
   callbacks
 }) {
   const events = workflowCallbacks(callbacks);
-  const multiAnswerQuestions = activeMultiAnswerQuestions(config);
+  const multiAnswerQuestions = Object.keys(multiAnswerQuestionsFor(config)).map(Number);
   const total = loadedResults.length + (scanMarker ? 1 : 0);
   const results = [];
   let answerKey = null;

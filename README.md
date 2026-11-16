@@ -235,11 +235,12 @@ Baseline scan settings:
 
 ## Multi-answer questions
 
-Enable **Contains multi-answer questions?**, then use the per-question **Multi**
-button in the answer key. Single-answer and multi-answer questions can be mixed
-on the same exam. A multi-answer response earns the question's mark only when
-its selected set exactly matches the keyed set; incomplete answers and answers
-with extra selections score zero.
+Use **Multi-answer by default** to set the answer type for the exam. Use **Add
+answer type range** for sections that use a different type. Enable **Edit
+individual questions** to change the type or marks for specific questions. An
+individual setting takes precedence over a range, and a range takes precedence
+over the exam default. A multi-answer response earns the question's mark when
+its selected set exactly matches the keyed set.
 
 Internally and in `raw_results.csv`, a selected set is stored in A-E order in
 the existing question column: for example, selecting D and B is exported as

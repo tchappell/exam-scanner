@@ -8,6 +8,9 @@ import {
   createAnswerKey,
   fixAnswers,
   isAnswerCorrect,
+  isMultiAnswerQuestion,
+  multiAnswerDefaultForQuestion,
+  multiAnswerQuestionsFor,
   normaliseAnswer,
   marksForQuestion,
   normaliseStudentNum,
@@ -52,6 +55,26 @@ test('mark ranges and individual overrides have predictable precedence', () => {
   assert.equal(marksForQuestion(5, marking), 2);
   assert.equal(calculateMaximumScore(answerKey, marking), 7);
   assert.equal(calculateScore(['A', 'A', 'A', 'A', 'B', 'A'], answerKey, {}, marking), 5.5);
+});
+
+test('Multi and marks can inherit independently within an overlapping range', () => {
+  const config = {
+    hasMultiAnswer: true,
+    marking: { defaultMarks: 1, ranges: [
+      { from: 0, to: 6, marks: 2 },
+      { from: 1, to: 5, multiAnswer: false },
+      { from: 3, to: 4, marks: 0, multiAnswer: true },
+      { from: 4, to: 5, marks: 3 }
+    ] },
+    multiAnswerQuestions: { 2: true, 4: false }
+  };
+  const modes = Array.from({ length: 8 }, (_, question) => isMultiAnswerQuestion(config, question));
+  assert.deepEqual(modes, [true, false, true, true, false, false, true, true]);
+  assert.equal(multiAnswerDefaultForQuestion(config, 2), false);
+  assert.equal(multiAnswerDefaultForQuestion(config, 4), true);
+  assert.deepEqual(Array.from({ length: 8 }, (_, question) => marksForQuestion(question, config.marking)), [2, 2, 2, 0, 3, 3, 2, 1]);
+  const answerKey = { 1: { A: true, C: true }, 2: { A: true, C: true }, 4: { A: true, C: true } };
+  assert.equal(calculateScore([' ', 'C', 'C', ' ', 'C'], answerKey, multiAnswerQuestionsFor(config), config.marking), 5);
 });
 
 test('answers are stored in a canonical, CSV-friendly form', () => {

@@ -616,11 +616,9 @@ select {
   min-height: 38px;
 }
 
-.answer-key-row.has-multi { grid-template-columns: 28px minmax(0, auto) 1fr; }
-.answer-key-row.has-marks { grid-template-columns: 28px 48px 1fr; }
-.answer-key-row.has-multi.has-marks { grid-template-columns: 28px 48px minmax(0, auto) 1fr; }
+.answer-key-row.is-editing { grid-template-columns: 28px 48px minmax(0, auto) 1fr; }
 
-.answer-key-grid.has-multi.has-marks {
+.answer-key-grid.is-editing {
   grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
 }
 
@@ -650,6 +648,24 @@ select {
   font-size: 0.63rem;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.answer-key-row__multi-control {
+  position: relative;
+}
+
+.answer-key-row__multi-control .btn-check {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  clip: auto;
+  opacity: 0;
+}
+
+.btn-check:focus-visible + .answer-key-row__multi {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
 .btn-check:checked + .answer-key-row__multi {
@@ -2057,12 +2073,15 @@ select {
 }
 
 .mark-allocation input[type="number"],
-.mark-range input {
-  width: 66px;
+.mark-range select {
   min-height: 32px;
   padding: 4px 7px;
   border: 1px solid #cfd7e5;
   border-radius: 7px;
+}
+
+.mark-allocation input[type="number"] {
+  width: 66px;
 }
 
 .mark-ranges {
@@ -2078,7 +2097,8 @@ select {
   font-size: 0.72rem;
 }
 
-.mark-range label {
+.mark-range label,
+.mark-range__questions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -2293,7 +2313,7 @@ button.review-item__image { cursor: zoom-in; }
     grid-template-columns: minmax(340px, 0.85fr) minmax(480px, 1.15fr);
   }
   .setup-column--answer .answer-key-grid { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
-  .setup-column--answer .answer-key-grid.has-multi.has-marks {
+  .setup-column--answer .answer-key-grid.is-editing {
     grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   }
 }
@@ -2664,6 +2684,7 @@ body {
 .results-search input,
 .canvas-comment-field textarea,
 .mark-range input,
+.mark-range select,
 .answer-key-row__marks input {
   border-color: #8f969c;
   border-radius: 3px;
@@ -2680,6 +2701,7 @@ body {
 .results-search input:focus,
 .canvas-comment-field textarea:focus,
 .mark-range input:focus,
+.mark-range select:focus,
 .answer-key-row__marks input:focus {
   border-color: #297dbd;
   outline: 0;

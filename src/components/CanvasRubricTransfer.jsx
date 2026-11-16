@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'preact/hooks';
 
-import { calculateScore } from '../examDomain.mjs';
+import { calculateScore, multiAnswerQuestionsFor } from '../examDomain.mjs';
 import {
   countExistingRubricPoints,
   findRubricCriteria,
@@ -10,8 +10,6 @@ import {
 } from '../services/canvasRubricAssessment.mjs';
 import { createCSV, loadCSV } from '../util/csv.mjs';
 import { downloadFile } from '../util/downloads.mjs';
-
-const multiAnswerQuestionsFor = cfg => cfg.hasMultiAnswer ? (cfg.multiAnswerQuestions ?? {}) : {};
 
 function exportFilename(filename) {
   const stem = filename.replace(/\.csv$/i, '') || 'rubric-assessments';
@@ -58,11 +56,12 @@ export function CanvasRubricTransfer({ examResults, cfg, gradebookCsv, gradebook
   const exportRubric = () => {
     if (selectedColumn === null) return;
     const pointsByExam = new Map();
+    const multiAnswerQuestions = multiAnswerQuestionsFor(cfg);
     for (const examIndex of rubricMatches.keys()) {
       pointsByExam.set(examIndex, calculateScore(
         examResults[examIndex].answers,
         cfg.answerKey,
-        multiAnswerQuestionsFor(cfg),
+        multiAnswerQuestions,
         cfg.marking
       ));
     }

@@ -30,6 +30,7 @@ export function buildWorkingDataset({ config, examResults, pdfSources, compariso
     })
   }));
   return {
+    multiAnswerAllocation: true,
     pdfSources: pdfSources.map(sourceMetadata),
     scanRuns: normaliseScanRuns(scanRuns, pdfSources),
     tasDraft: normaliseTasDraft(tasDraft),
@@ -86,14 +87,22 @@ export function readWorkingDataset(dataset, loadedPdfSources = []) {
     pdfSources = restorePdfSources(dataset.pdfSources, loadedPdfSources);
   }
 
+  const usesAllocation = dataset.multiAnswerAllocation === true;
   const config = {
     twoSided: Boolean(dataset.twoSided),
     answerKey: dataset.answerKey ?? {},
-    hasMultiAnswer: Boolean(dataset.hasMultiAnswer),
-    multiAnswerQuestions: dataset.multiAnswerQuestions ?? {},
+    hasMultiAnswer: usesAllocation && Boolean(dataset.hasMultiAnswer),
+    // Older saves used the global flag to enable only the individually selected questions.
+    multiAnswerQuestions: usesAllocation || dataset.hasMultiAnswer ? dataset.multiAnswerQuestions ?? {} : {},
     ...(typeof dataset.showQuestionable === 'boolean' ? { showQuestionable: dataset.showQuestionable } : {}),
     ...(dataset.marking ? { marking: dataset.marking } : {})
   };
+  if (!usesAllocation && Array.isArray(config.marking?.ranges)) {
+    // A blank range value in old saves meant zero marks.
+    config.marking = { ...config.marking, ranges: config.marking.ranges.map(range =>
+      range.marks === null || (typeof range.marks === 'string' && !range.marks.trim())
+        ? { ...range, marks: 0 } : range) };
+  }
   const sourceIds = new Set(pdfSources.map(source => source.id));
   const examResults = dataset.examResults.map(result => {
     if (!result || typeof result !== 'object') throw new Error('The dataset contains an invalid exam result.');

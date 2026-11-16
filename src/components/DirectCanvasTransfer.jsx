@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
-import { calculateMaximumScore, calculateScore, normaliseStudentNum } from '../examDomain.mjs';
+import { calculateMaximumScore, calculateScore, multiAnswerQuestionsFor, normaliseStudentNum } from '../examDomain.mjs';
 import {
   canvasStudentsToGradebookRows,
   connectCanvas,
@@ -18,7 +18,6 @@ import { CanvasRosterMatch } from './CanvasRosterMatch.jsx';
 
 const DEFAULT_CANVAS_URL = 'https://canvas.qut.edu.au';
 const DEFAULT_COMMENT = 'Your marked test answer sheet is attached. Please contact the teaching team if you believe any response has been recorded incorrectly.';
-const multiAnswerQuestionsFor = cfg => cfg.hasMultiAnswer ? (cfg.multiAnswerQuestions ?? {}) : {};
 const criterionName = (criterion, index = 0) => criterion?.description?.trim() || `Criterion ${index + 1}`;
 const pointsLabel = value => Number.isFinite(value) ? `${value} point${value === 1 ? '' : 's'}` : 'points not reported';
 
@@ -196,6 +195,7 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdfSour
     setError(null);
     setUpload({ running: true, completed: 0, total: matched.length, updated: 0, unchanged: 0, failed: [] });
     const sourceDocuments = new WeakMap();
+    const multiAnswerQuestions = multiAnswerQuestionsFor(cfg);
 
     let completed = 0;
     let updated = 0;
@@ -218,7 +218,7 @@ export function DirectCanvasTransfer({ examResults, setExamResults, cfg, pdfSour
           assignmentId,
           userId: student[1],
           score: updateGrades
-            ? calculateScore(result.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking)
+            ? calculateScore(result.answers, cfg.answerKey, multiAnswerQuestions, cfg.marking)
             : null,
           rubricCriterionId: rubricTarget?.id ?? null,
           hash,

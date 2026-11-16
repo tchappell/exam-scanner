@@ -52,6 +52,10 @@ function validMark(value, fallback = 0) {
   return Number.isFinite(mark) && mark >= 0 ? mark : fallback;
 }
 
+function rangeIncludesQuestion(range, question) {
+  return question >= Number(range.from) && question <= Number(range.to);
+}
+
 export function marksForQuestion(question, marking = DEFAULT_MARKING) {
   const fallback = validMark(marking?.defaultMarks, 1);
   const override = marking?.overrides?.[question];
@@ -59,11 +63,35 @@ export function marksForQuestion(question, marking = DEFAULT_MARKING) {
 
   let marks = fallback;
   for (const range of marking?.ranges ?? []) {
-    if (question >= Number(range.from) && question <= Number(range.to)) {
+    if (`${range.marks ?? ''}`.trim() !== '' && rangeIncludesQuestion(range, question)) {
       marks = validMark(range.marks, fallback);
     }
   }
   return marks;
+}
+
+export function multiAnswerDefaultForQuestion(config, question) {
+  let multiple = Boolean(config.hasMultiAnswer);
+  for (const range of config.marking?.ranges ?? []) {
+    if (typeof range.multiAnswer === 'boolean' && rangeIncludesQuestion(range, question)) {
+      multiple = range.multiAnswer;
+    }
+  }
+  return multiple;
+}
+
+export function isMultiAnswerQuestion(config, question) {
+  const override = config.multiAnswerQuestions?.[question];
+  return typeof override === 'boolean' ? override : multiAnswerDefaultForQuestion(config, question);
+}
+
+export function multiAnswerQuestionsFor(config) {
+  const questionCount = config.twoSided ? 160 : 40;
+  const selected = {};
+  for (let question = 0; question < questionCount; question++) {
+    if (isMultiAnswerQuestion(config, question)) selected[question] = true;
+  }
+  return selected;
 }
 
 export function calculateMaximumScore(answerKey, marking = DEFAULT_MARKING) {

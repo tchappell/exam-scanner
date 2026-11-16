@@ -1,7 +1,6 @@
 import { Fragment } from 'preact';
-import { ANSWER_OPTIONS, answerIncludes, calculateScore, isAnswerCorrect, marksForQuestion } from '../examDomain.mjs';
+import { ANSWER_OPTIONS, answerIncludes, calculateScore, isAnswerCorrect, marksForQuestion, multiAnswerQuestionsFor } from '../examDomain.mjs';
 
-const multiAnswerQuestionsFor = cfg => cfg.hasMultiAnswer ? (cfg.multiAnswerQuestions ?? {}) : {};
 const average = values => values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
 
 function standardDeviation(values) {

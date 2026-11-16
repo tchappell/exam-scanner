@@ -13,16 +13,74 @@ test('presents the scanner as a compact three-step workflow', async ({ page }) =
   await expect(page.getByRole('button', { name: 'Scan Exams' })).toBeDisabled();
 });
 
-test('reveals per-question multi-answer controls and updates the key summary', async ({ page }) => {
+test('defaults every question to Multi and only shows individual controls while editing', async ({ page }) => {
   await page.goto('/');
 
-  await page.getByLabel('Contains multi-answer questions?').check();
-  await expect(page.getByLabel('Question 1 uses multiple answers')).toBeVisible();
+  await page.getByLabel('Multi-answer by default').check();
+  const firstMulti = page.getByLabel('Question 1 uses multiple answers');
+  await expect(firstMulti).toHaveCount(0);
+  await page.getByLabel('Edit individual questions').check();
+  await expect(firstMulti).toBeChecked();
+  await expect(page.getByLabel('Question 40 uses multiple answers')).toBeChecked();
   await page.locator('label[for="ak_1_A"]').click();
   await page.locator('label[for="ak_1_C"]').click();
   await expect(page.locator('#ak_1_A')).toBeChecked();
   await expect(page.locator('#ak_1_C')).toBeChecked();
   await expect(page.getByText('1 keyed')).toBeVisible();
+  await page.getByLabel('Edit individual questions').uncheck();
+  await expect(firstMulti).toHaveCount(0);
+});
+
+test('toggling a late Multi question keeps the answer key and page in place', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Two-sided?').check();
+  await page.getByLabel('Multi-answer by default').check();
+  await page.getByLabel('Edit individual questions').check();
+  const toggle = page.locator('label[for="ak_148_multi"]');
+  await toggle.evaluate(label => label.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }));
+  const scrollPosition = () => toggle.evaluate(label => ({
+    grid: label.closest('.answer-key-grid').scrollTop,
+    page: window.scrollY
+  }));
+  const before = await scrollPosition();
+  expect(before.grid).toBeGreaterThan(0);
+  const input = page.locator('#ak_148_multi');
+  await expect(input).toBeChecked();
+
+  await toggle.click();
+  await expect(input).not.toBeChecked();
+  expect(await scrollPosition()).toEqual(before);
+
+  await expect(input).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(input).toBeChecked();
+  expect(await scrollPosition()).toEqual(before);
+});
+
+test('answer type ranges and individual Multi settings override the checkbox independently of marks', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('label[for="ak_1_A"]').click();
+  await page.getByLabel('Default per keyed question').fill('2.5');
+  await page.getByLabel('Multi-answer by default').check();
+  await page.getByRole('button', { name: 'Add answer type range' }).click();
+  await page.getByLabel('Range 1 last question').fill('3');
+  await expect(page.getByLabel('Range 1 answer type')).toHaveValue('single');
+  await expect(page.getByText('2.5 marks available')).toBeVisible();
+
+  await page.getByLabel('Edit individual questions').check();
+  await expect(page.locator('#ak_1_multi')).not.toBeChecked();
+  await expect(page.locator('#ak_4_multi')).toBeChecked();
+  await page.locator('label[for="ak_2_multi"]').click();
+  await page.getByLabel('Multi-answer by default').uncheck();
+  await expect(page.locator('#ak_2_multi')).toBeChecked();
+  await expect(page.locator('#ak_4_multi')).not.toBeChecked();
+
+  await page.getByLabel('Range 1 answer type').selectOption('multi');
+  await expect(page.locator('#ak_1_multi')).toBeChecked();
+  await page.locator('label[for="ak_1_multi"]').click();
+  await expect(page.locator('#ak_1_multi')).not.toBeChecked();
+  await expect(page.locator('#ak_3_multi')).toBeChecked();
+  await expect(page.getByText('2.5 marks available')).toBeVisible();
 });
 
 test('opens the answer-sheet request form with finite defaults', async ({ page }) => {
@@ -66,7 +124,7 @@ test('fits all four one-sided answer blocks on one row on a wide display', async
 
 test('keeps Multi inside its control when individual marks are visible', async ({ page }) => {
   await page.goto('/');
-  await page.getByLabel('Contains multi-answer questions?').check();
+  await page.getByLabel('Multi-answer by default').check();
   await page.getByLabel('Edit individual questions').check();
 
   const geometry = await page.locator('label[for="ak_1_multi"]').evaluate(label => {

@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'preact/hooks';
-import { ANSWER_OPTIONS, answerIncludes, normaliseAnswer, updateAnswer } from '../examDomain.mjs';
+import { ANSWER_OPTIONS, answerIncludes, isMultiAnswerQuestion, normaliseAnswer, updateAnswer } from '../examDomain.mjs';
 import { renderComparisonCrops } from '../services/comparisonCrops.mjs';
 import { combinedPdfPage, pdfSourceForResult } from '../services/pdfSources.mjs';
 import { updateExamResult } from '../services/resultState.mjs';
-
-const multiAnswerQuestionsFor = cfg => cfg.hasMultiAnswer ? (cfg.multiAnswerQuestions ?? {}) : {};
 
 function ReviewChoiceButtons({ answer, multiple, onChange }) {
   return (
@@ -106,7 +104,7 @@ function QuestionableItem({ cfg, item, crop, onRetryCrop, setExamResults, onView
         </div>
         <ReviewChoiceButtons
           answer={result.answers[question]}
-          multiple={Boolean(multiAnswerQuestionsFor(cfg)[question])}
+          multiple={isMultiAnswerQuestion(cfg, question)}
           onChange={value => updateExamResult(setExamResults, resultIndex, previous => ({
             answers: previous.answers.map((answer, index) => index === question ? value : answer),
             raw_answers: previous.raw_answers[question].reviewed ? previous.raw_answers : previous.raw_answers.map((answer, index) =>

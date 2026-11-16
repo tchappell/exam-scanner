@@ -1,4 +1,4 @@
-import { ANSWER_OPTIONS, isAnswerCorrect, normaliseAnswer } from '../examDomain.mjs';
+import { ANSWER_OPTIONS, isAnswerCorrect, isMultiAnswerQuestion, normaliseAnswer } from '../examDomain.mjs';
 
 const FORM_HEIGHT = 841;
 const ANSWER_SCALE = 16.667834;
@@ -178,7 +178,6 @@ export async function createAnnotatedExamPdf(config, result, sourcePdf, sourceDo
   const correctColor = rgb(0, 0.65, 0.12);
   const incorrectColor = rgb(0.9, 0.08, 0.1);
   const optionIndex = { A: 0, B: 1, C: 2, D: 3, E: 4 };
-  const multiAnswerQuestions = config.hasMultiAnswer ? (config.multiAnswerQuestions ?? {}) : {};
 
   const answerPoint = (question, option) => {
     const position = scannedAnswerPosition(question);
@@ -226,7 +225,7 @@ export async function createAnnotatedExamPdf(config, result, sourcePdf, sourceDo
     const answer = normaliseAnswer(result.answers[question]);
     const selectedOptions = answer.trim().split('');
     const position = scannedAnswerPosition(question);
-    const correct = isAnswerCorrect(answer, config.answerKey?.[question], Boolean(multiAnswerQuestions[question]));
+    const correct = isAnswerCorrect(answer, config.answerKey?.[question], isMultiAnswerQuestion(config, question));
 
     for (const option of selectedOptions) {
       const point = answerPoint(question, option);

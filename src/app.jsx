@@ -265,7 +265,7 @@ export function App() {
   const keyedQuestionCount = Object.values(cfg.answerKey)
     .filter(answer => Object.values(answer).some(Boolean)).length;
   const hasSetupEdits = keyedQuestionCount > 0 || cfg.twoSided || cfg.hasMultiAnswer || !cfg.showQuestionable
-    || Object.values(cfg.multiAnswerQuestions).some(Boolean) || cfg.marking.ranges?.length > 0
+    || Object.keys(cfg.multiAnswerQuestions).length > 0 || cfg.marking.ranges?.length > 0
     || Object.keys(cfg.marking.overrides ?? {}).length > 0 || Number(cfg.marking.defaultMarks) !== 1
     || Object.keys(tasDraft).length > 0 || pdfSources.some(item => item.scanConfig && (item.scanConfig.hasMarker
       || item.scanConfig.startAt !== 1 || item.scanConfig.endAt !== item.numPages));
@@ -341,7 +341,7 @@ export function App() {
               </div>
               <div class="setup-column setup-column--answer" id="answer-key">
                 <h3>Answer key</h3>
-                <p class="setup-column__description">Select every accepted answer. Enable Multi only where the complete set is required.</p>
+                <p class="setup-column__description">Select the accepted answers. Multi questions require the complete set.</p>
                 <AnswerKeyPanel cfg={cfg} setCfg={setCfg} pdfBatches={pdfSources}
                   tasDraft={tasDraft} setTasDraft={setTasDraft} currentlyScanning={busy} />
               </div>

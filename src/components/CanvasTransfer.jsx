@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { calculateMaximumScore, calculateScore } from '../examDomain.mjs';
+import { calculateMaximumScore, calculateScore, multiAnswerQuestionsFor } from '../examDomain.mjs';
 import { isDesktopApp } from '../services/canvasDesktop.mjs';
 import { applyManualCanvasMatches, matchExamResultsToCanvas, savedCanvasMatches } from '../services/canvasMatching.mjs';
 import { pairExamWithCanvas, updateExamResult } from '../services/resultState.mjs';
@@ -10,8 +10,6 @@ import { CanvasRosterMatch } from './CanvasRosterMatch.jsx';
 import { CanvasRubricTransfer } from './CanvasRubricTransfer.jsx';
 import { DirectCanvasTransfer } from './DirectCanvasTransfer.jsx';
 import uploadMarks from '../uploadMarks.txt?raw';
-
-const multiAnswerQuestionsFor = cfg => cfg.hasMultiAnswer ? (cfg.multiAnswerQuestions ?? {}) : {};
 
 function findAssignments(csv) {
   const assignments = [];
@@ -52,6 +50,7 @@ function PerStudentPdfExport({ examResults, cfg, assignment, canvasCSV, matches,
     const zip = await createZip('CanvasUpload.zip');
     const sourceDocuments = new WeakMap();
     const grades = [];
+    const multiAnswerQuestions = multiAnswerQuestionsFor(cfg);
 
     for (let index = 0; index < examResults.length; index++) {
       const canvasIndex = matches.get(index);
@@ -74,7 +73,7 @@ function PerStudentPdfExport({ examResults, cfg, assignment, canvasCSV, matches,
       }
       grades.push([
         canvasCSV[canvasIndex][1],
-        `${calculateScore(result.answers, cfg.answerKey, multiAnswerQuestionsFor(cfg), cfg.marking)}`,
+        `${calculateScore(result.answers, cfg.answerKey, multiAnswerQuestions, cfg.marking)}`,
         hash,
         filename
       ]);
@@ -167,11 +166,12 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdfSources, c
   const selectedAssignment = assignmentIndex === '-1' ? null : assignments[Number(assignmentIndex)];
   const exportCanvasCsv = () => {
     const csv = structuredClone(canvasCSV);
+    const multiAnswerQuestions = multiAnswerQuestionsFor(cfg);
     for (const [examIndex, canvasIndex] of examResultMatches) {
       csv[canvasIndex][selectedAssignment.col] = calculateScore(
         examResults[examIndex].answers,
         cfg.answerKey,
-        multiAnswerQuestionsFor(cfg),
+        multiAnswerQuestions,
         cfg.marking
       );
     }
