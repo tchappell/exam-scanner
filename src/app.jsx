@@ -38,6 +38,7 @@ export function App() {
   const [pdfPage, setPdfPage] = useState(1);
   const [previewURI, setPreviewURI] = useState(null);
   const [comparison, setComparison] = useState({});
+  const [collapsedSections, setCollapsedSections] = useState({});
   const [tasDraft, setTasDraft] = useState({});
   const [viewer, setViewer] = useState(null);
   const [importCSVPage1, setImportCSVPage1] = useState(1);
@@ -296,12 +297,14 @@ export function App() {
   const createAnnotatedPdf = (result, sourceDocuments) => createAnnotatedExamPdf(
     cfg, result, pdfSourceForResult(pdfSources, result)?.pdf, sourceDocuments
   );
+  const toggleSection = id => setCollapsedSections(previous => ({ ...previous, [id]: !previous[id] }));
+  const expandSection = id => setCollapsedSections(previous => previous[id] ? { ...previous, [id]: false } : previous);
 
   return (
     <div class="exam-scanner-app">
       <div class="app-backdrop" aria-hidden="true"></div>
       <div class="app-container">
-        <AppHeader pdfName={loadedPdfSources[0]?.name} resultCount={examResults.length} />
+        <AppHeader pdfName={loadedPdfSources[0]?.name} resultCount={examResults.length} onNavigate={expandSection} />
 
         <main class="workspace">
           <WorkspaceSection
@@ -311,6 +314,7 @@ export function App() {
             title="Set up the scan"
             description="Load exam PDFs, configure the scan and set the answer key."
             actions={<span class="section-count">{keyedQuestionCount} keyed</span>}
+            expanded={!collapsedSections.setup} onToggle={() => toggleSection('setup')}
           >
             <div class="setup-layout">
               <div class="setup-column setup-column--source">
@@ -383,6 +387,7 @@ export function App() {
             title="Review scanned exams"
             description="Confirm student details, answers and scores. Question columns scroll horizontally."
             actions={<span class="section-count">{examResults.length} scanned</span>}
+            expanded={!collapsedSections.results} onToggle={() => toggleSection('results')}
           >
             <ExamResultsTable cfg={cfg} examResults={examResults} setExamResults={setExamResults} pdfSources={pdfSources}
               canViewOriginalPdf={result => canViewPage(result.page, result.sourceId)} onViewOriginalPdf={viewOriginal}
@@ -412,6 +417,7 @@ export function App() {
             eyebrow="Output"
             title="Export and continue"
             description="Download results, save your work, or prepare grades for Canvas."
+            expanded={!collapsedSections.exports} onToggle={() => toggleSection('exports')}
           >
             <ResultsFileExchange
               cfg={cfg}

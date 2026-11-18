@@ -216,6 +216,34 @@ select {
   background: linear-gradient(180deg, #fff, #fbfcfe);
 }
 
+.section-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.section-toggle {
+  display: inline-grid;
+  flex: 0 0 2rem;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  place-items: center;
+}
+
+.section-toggle__chevron {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translate(-1px, 0) rotate(-45deg);
+}
+
+.section-toggle[aria-expanded="true"] .section-toggle__chevron {
+  transform: translate(0, -2px) rotate(45deg);
+}
+
 .workspace-section__heading {
   display: flex;
   align-items: flex-start;

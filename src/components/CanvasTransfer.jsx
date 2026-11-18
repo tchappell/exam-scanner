@@ -9,6 +9,7 @@ import { addBlobToZip, createZip, downloadFile, downloadZip } from '../util/down
 import { CanvasRosterMatch } from './CanvasRosterMatch.jsx';
 import { CanvasRubricTransfer } from './CanvasRubricTransfer.jsx';
 import { DirectCanvasTransfer } from './DirectCanvasTransfer.jsx';
+import { SectionToggle } from './WorkspaceSection.jsx';
 import uploadMarks from '../uploadMarks.txt?raw';
 
 function findAssignments(csv) {
@@ -135,6 +136,7 @@ function PerStudentPdfExport({ examResults, cfg, assignment, canvasCSV, matches,
 
 export function CanvasTransfer({ examResults, setExamResults, cfg, pdfSources, canAnnotatePdf, createAnnotatedPdf, onViewPage }) {
   const desktopApp = isDesktopApp();
+  const [expanded, setExpanded] = useState(true);
   const [mode, setMode] = useState(desktopApp ? 'direct' : 'csv');
   const [canvasCSV, setCanvasCSV] = useState(null);
   const [assignments, setAssignments] = useState([]);
@@ -180,63 +182,69 @@ export function CanvasTransfer({ examResults, setExamResults, cfg, pdfSources, c
 
   return (
     <section class="canvas-transfer" aria-labelledby="canvas-transfer-title">
-      <div class="subsection-header">
+      <div class={`subsection-header${expanded ? '' : ' mb-0'}`}>
         <div><p class="subsection-header__eyebrow">Integration</p><h3 id="canvas-transfer-title">Canvas transfer</h3></div>
-        {mode === 'csv' && canvasCSV ? <button type="button" class="btn btn-sm btn-outline-secondary" onClick={clearGradebook}>Remove gradebook</button> : null}
+        <div class="section-controls flex-wrap">
+          {expanded && mode === 'csv' && canvasCSV ? <button type="button" class="btn btn-sm btn-outline-secondary" onClick={clearGradebook}>Remove gradebook</button> : null}
+          <SectionToggle title="Canvas transfer" expanded={expanded} controls="canvas-transfer-body"
+            onClick={() => setExpanded(previous => !previous)} />
+        </div>
       </div>
-      {desktopApp ? <div class="canvas-transfer-tabs" role="tablist" aria-label="Canvas transfer method">
-        <button type="button" role="tab" aria-selected={mode === 'direct'} class={mode === 'direct' ? 'is-active' : ''}
-          onClick={() => setMode('direct')}>Direct Canvas</button>
-        <button type="button" role="tab" aria-selected={mode === 'csv'} class={mode === 'csv' ? 'is-active' : ''}
-          onClick={() => setMode('csv')}>Gradebook and rubric CSVs</button>
-      </div> : null}
+      <div id="canvas-transfer-body" hidden={!expanded}>
+        {desktopApp ? <div class="canvas-transfer-tabs" role="tablist" aria-label="Canvas transfer method">
+          <button type="button" role="tab" aria-selected={mode === 'direct'} class={mode === 'direct' ? 'is-active' : ''}
+            onClick={() => setMode('direct')}>Direct Canvas</button>
+          <button type="button" role="tab" aria-selected={mode === 'csv'} class={mode === 'csv' ? 'is-active' : ''}
+            onClick={() => setMode('csv')}>Gradebook and rubric CSVs</button>
+        </div> : null}
 
-      {mode === 'direct' ? <DirectCanvasTransfer examResults={examResults} setExamResults={setExamResults}
-        cfg={cfg} pdfSources={pdfSources} canAnnotatePdf={canAnnotatePdf}
-        createAnnotatedPdf={createAnnotatedPdf} onViewPage={onViewPage} /> : <>
-      {!canvasCSV ? (
-        <div class="canvas-upload">
-          <div><strong>Load a Canvas Gradebook CSV</strong><p>Match scanned student numbers and select the assignment to update.</p></div>
-          <input type="file" accept="text/csv" onChange={loadGradebook} class="form-control" id="canvasCsvUpload"
-            aria-label="Submit Canvas Gradebook CSV" />
-        </div>
-      ) : <>
-        <CanvasRosterMatch examResults={examResults} setExamResults={setExamResults} canvasCSV={canvasCSV} matchResult={matchResult}
-          pdfSources={pdfSources} onViewPage={onViewPage}
-          onMatch={(examIndex, canvasIndex) => pairExamWithCanvas(setExamResults, examIndex, canvasCSV[canvasIndex])}
-          onUnmatch={examIndex => updateExamResult(setExamResults, examIndex, { canvasMatch: null })}
-          onCorrectNumber={(examIndex, value) => updateExamResult(setExamResults, examIndex, {
-            student_number: value, canvasMatch: null
-          })} />
-        <CanvasRubricTransfer examResults={examResults} cfg={cfg} gradebookCsv={canvasCSV}
-          gradebookMatches={examResultMatches} />
-      </>}
-
-      <div class="canvas-assignment">
-        <div class="field-group">
-          <label htmlFor="selectAssessmentItem">Assessment item</label>
-          <select class={assignmentIndex === '-1' ? 'fst-italic' : ''} value={assignmentIndex}
-            id="selectAssessmentItem" onChange={event => setAssignmentIndex(event.target.value)}>
-            <option value="-1">(no assignment selected)</option>
-            {assignments.map((assignment, index) => <option class="fst-normal" key={assignment.col} value={index}>{assignment.name}</option>)}
-          </select>
-        </div>
-        {selectedAssignment ? <>
-          <div class="canvas-assignment__summary">
-            <span>{selectedAssignment.totalMarks} assignment points</span>
-            <span>{calculateMaximumScore(cfg.answerKey, cfg.marking)} scanner points</span>
-            <span>{examResultMatches.size} grades to export</span>
+        {mode === 'direct' ? <DirectCanvasTransfer examResults={examResults} setExamResults={setExamResults}
+          cfg={cfg} pdfSources={pdfSources} canAnnotatePdf={canAnnotatePdf}
+          createAnnotatedPdf={createAnnotatedPdf} onViewPage={onViewPage} /> : <>
+        {!canvasCSV ? (
+          <div class="canvas-upload">
+            <div><strong>Load a Canvas Gradebook CSV</strong><p>Match scanned student numbers and select the assignment to update.</p></div>
+            <input type="file" accept="text/csv" onChange={loadGradebook} class="form-control" id="canvasCsvUpload"
+              aria-label="Submit Canvas Gradebook CSV" />
           </div>
-          <button type="button" class="btn btn-primary" onClick={exportCanvasCsv}>Export Canvas CSV</button>
-        </> : null}
-      </div>
+        ) : <>
+          <CanvasRosterMatch examResults={examResults} setExamResults={setExamResults} canvasCSV={canvasCSV} matchResult={matchResult}
+            pdfSources={pdfSources} onViewPage={onViewPage}
+            onMatch={(examIndex, canvasIndex) => pairExamWithCanvas(setExamResults, examIndex, canvasCSV[canvasIndex])}
+            onUnmatch={examIndex => updateExamResult(setExamResults, examIndex, { canvasMatch: null })}
+            onCorrectNumber={(examIndex, value) => updateExamResult(setExamResults, examIndex, {
+              student_number: value, canvasMatch: null
+            })} />
+          <CanvasRubricTransfer examResults={examResults} cfg={cfg} gradebookCsv={canvasCSV}
+            gradebookMatches={examResultMatches} />
+        </>}
 
-      {selectedAssignment && examResults.some(canAnnotatePdf) ? (
-        <PerStudentPdfExport examResults={examResults} cfg={cfg} assignment={selectedAssignment}
-          canvasCSV={canvasCSV} matches={examResultMatches}
-          canAnnotatePdf={canAnnotatePdf} createAnnotatedPdf={createAnnotatedPdf} />
-      ) : null}
-      </>}
+        <div class="canvas-assignment">
+          <div class="field-group">
+            <label htmlFor="selectAssessmentItem">Assessment item</label>
+            <select class={assignmentIndex === '-1' ? 'fst-italic' : ''} value={assignmentIndex}
+              id="selectAssessmentItem" onChange={event => setAssignmentIndex(event.target.value)}>
+              <option value="-1">(no assignment selected)</option>
+              {assignments.map((assignment, index) => <option class="fst-normal" key={assignment.col} value={index}>{assignment.name}</option>)}
+            </select>
+          </div>
+          {selectedAssignment ? <>
+            <div class="canvas-assignment__summary">
+              <span>{selectedAssignment.totalMarks} assignment points</span>
+              <span>{calculateMaximumScore(cfg.answerKey, cfg.marking)} scanner points</span>
+              <span>{examResultMatches.size} grades to export</span>
+            </div>
+            <button type="button" class="btn btn-primary" onClick={exportCanvasCsv}>Export Canvas CSV</button>
+          </> : null}
+        </div>
+
+        {selectedAssignment && examResults.some(canAnnotatePdf) ? (
+          <PerStudentPdfExport examResults={examResults} cfg={cfg} assignment={selectedAssignment}
+            canvasCSV={canvasCSV} matches={examResultMatches}
+            canAnnotatePdf={canAnnotatePdf} createAnnotatedPdf={createAnnotatedPdf} />
+        ) : null}
+        </>}
+      </div>
     </section>
   );
 }

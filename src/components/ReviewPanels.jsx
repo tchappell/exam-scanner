@@ -3,6 +3,7 @@ import { ANSWER_OPTIONS, answerIncludes, isMultiAnswerQuestion, normaliseAnswer,
 import { renderComparisonCrops } from '../services/comparisonCrops.mjs';
 import { combinedPdfPage, pdfSourceForResult } from '../services/pdfSources.mjs';
 import { updateExamResult } from '../services/resultState.mjs';
+import { SectionToggle } from './WorkspaceSection.jsx';
 
 function ReviewChoiceButtons({ answer, multiple, onChange }) {
   return (
@@ -78,6 +79,11 @@ function QuestionableItem({ cfg, item, crop, onRetryCrop, setExamResults, onView
   const actioned = raw.reviewed === true;
   const image = raw.questionableImg ?? crop?.src;
   const imageTitle = `Question ${question + 1} crop`;
+  const reviewAnswer = value => updateExamResult(setExamResults, resultIndex, previous => ({
+    answers: value === undefined ? previous.answers : previous.answers.map((answer, index) => index === question ? value : answer),
+    raw_answers: previous.raw_answers[question].reviewed ? previous.raw_answers : previous.raw_answers.map((answer, index) =>
+      index === question ? { ...answer, reviewed: true } : answer)
+  }));
   return (
     <article
       class={`review-item review-item--answer ${actioned ? 'is-actioned' : ''}`}
@@ -105,20 +111,22 @@ function QuestionableItem({ cfg, item, crop, onRetryCrop, setExamResults, onView
         <ReviewChoiceButtons
           answer={result.answers[question]}
           multiple={isMultiAnswerQuestion(cfg, question)}
-          onChange={value => updateExamResult(setExamResults, resultIndex, previous => ({
-            answers: previous.answers.map((answer, index) => index === question ? value : answer),
-            raw_answers: previous.raw_answers[question].reviewed ? previous.raw_answers : previous.raw_answers.map((answer, index) =>
-              index === question ? { ...answer, reviewed: true } : answer)
-          }))}
+          onChange={reviewAnswer}
         />
-        <p class="review-item__meta">Scanner read: <strong>{raw.scanned_value?.trim() || 'blank'}</strong>
-          {actioned ? ' · Reviewed' : ''}</p>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+          <p class="review-item__meta">Scanner read: <strong>{raw.scanned_value?.trim() || 'blank'}</strong>
+            {actioned ? ' · Reviewed' : ''}</p>
+          {!actioned ? <button type="button" class="btn btn-sm btn-outline-secondary" onClick={() => reviewAnswer()}>
+            Mark as reviewed
+          </button> : null}
+        </div>
       </div>
     </article>
   );
 }
 
 export function QuestionableReview({ cfg, setCfg, examResults, setExamResults, pdfSources, busy, onViewPage, onViewImage }) {
+  const [expanded, setExpanded] = useState(true);
   const [sort, setSort] = useState(['page', 'asc']);
   const items = useMemo(() => examResults.flatMap((result, resultIndex) => {
     const sourcePdf = pdfSourceForResult(pdfSources, result)?.pdf;
@@ -134,7 +142,8 @@ export function QuestionableReview({ cfg, setCfg, examResults, setExamResults, p
       }];
     });
   }), [examResults, pdfSources]);
-  const visible = useMemo(() => cfg.showQActioned ? items : items.filter(item => item.raw.reviewed !== true), [items, cfg.showQActioned]);
+  const pending = useMemo(() => items.filter(item => item.raw.reviewed !== true), [items]);
+  const visible = cfg.showQActioned ? items : pending;
   const sorted = useMemo(() => {
     const [field, order] = sort;
     const direction = order === 'desc' ? -1 : 1;
@@ -151,24 +160,35 @@ export function QuestionableReview({ cfg, setCfg, examResults, setExamResults, p
     : [field, 'asc']);
 
   return (
-    <div class="review-panel">
-      <div class="review-panel__header">
-        <div><p class="review-panel__eyebrow">Recognition review</p><h3>Questionable scans</h3></div>
-        <label class="review-toggle" htmlFor="showQActioned">
-          <input id="showQActioned" type="checkbox" class="form-check-input" autocomplete="off"
-            checked={cfg.showQActioned} onChange={event => setCfg(previous => ({ ...previous, showQActioned: event.target.checked }))} />
-          Show resolved items
-        </label>
+    <section class="review-panel" aria-labelledby="questionable-scans-title">
+      <div class={`review-panel__header${expanded ? '' : ' mb-0'}`}>
+        <div>
+          <p class="review-panel__eyebrow">Recognition review</p>
+          <h3 id="questionable-scans-title">Questionable scans</h3>
+          <p class="form-text mb-0">{pending.length} to review · {items.length - pending.length} reviewed</p>
+        </div>
+        <SectionToggle title="Questionable scans" expanded={expanded} controls="questionable-scans-body"
+          onClick={() => setExpanded(previous => !previous)} />
       </div>
-      <div class="review-sort">
-        <span>{items.length} {items.length === 1 ? 'item' : 'items'}</span>
-        <button type="button" onClick={() => toggleSort('page')}>Sort by page {sort[0] === 'page' ? (sort[1] === 'asc' ? '↑' : '↓') : ''}</button>
-        <button type="button" onClick={() => toggleSort('answer')}>Sort by answer {sort[0] === 'answer' ? (sort[1] === 'asc' ? '↑' : '↓') : ''}</button>
+      <div id="questionable-scans-body" hidden={!expanded}>
+        {items.length > 0 ? <>
+          <p id="questionable-scans-help" class="form-text">Choose a correction or select Mark as reviewed to keep the current answer.</p>
+          <div class="review-sort flex-wrap">
+            <label class="review-toggle me-auto" htmlFor="showQActioned">
+              <input id="showQActioned" type="checkbox" class="form-check-input" autocomplete="off"
+                checked={cfg.showQActioned} aria-describedby="questionable-scans-help"
+                onChange={event => setCfg(previous => ({ ...previous, showQActioned: event.target.checked }))} />
+              Show reviewed items
+            </label>
+            <button type="button" onClick={() => toggleSort('page')}>Sort by page {sort[0] === 'page' ? (sort[1] === 'asc' ? '↑' : '↓') : ''}</button>
+            <button type="button" onClick={() => toggleSort('answer')}>Sort by answer {sort[0] === 'answer' ? (sort[1] === 'asc' ? '↑' : '↓') : ''}</button>
+          </div>
+        </> : null}
+        {sorted.length === 0 ? <p class="review-panel__empty">{items.length ? 'All questionable scans reviewed.' : 'No questionable scans detected.'}</p> : sorted.map(item => (
+          <QuestionableItem key={item.id} cfg={cfg} item={item} crop={getCrop(item)} onRetryCrop={() => retryCrop(item)}
+            setExamResults={setExamResults} onViewPage={onViewPage} onViewImage={onViewImage} />
+        ))}
       </div>
-      {sorted.length === 0 ? <p class="review-panel__empty">{items.length ? 'All questionable scans reviewed.' : 'No questionable scans detected.'}</p> : sorted.map(item => (
-        <QuestionableItem key={item.id} cfg={cfg} item={item} crop={getCrop(item)} onRetryCrop={() => retryCrop(item)}
-          setExamResults={setExamResults} onViewPage={onViewPage} onViewImage={onViewImage} />
-      ))}
-    </div>
+    </section>
   );
 }

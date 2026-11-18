@@ -1,3 +1,11 @@
+export function SectionToggle({ title, expanded, controls, onClick }) {
+  const label = `${expanded ? 'Collapse' : 'Expand'} ${title}`;
+  return <button type="button" class="btn btn-sm btn-outline-secondary section-toggle"
+    aria-label={label} aria-expanded={expanded} aria-controls={controls} title={label} onClick={onClick}>
+    <span class="section-toggle__chevron" aria-hidden="true" />
+  </button>;
+}
+
 export function WorkspaceSection({
   id,
   number,
@@ -5,10 +13,13 @@ export function WorkspaceSection({
   title,
   description,
   actions,
+  expanded,
+  onToggle,
   children,
   className = ''
 }) {
   const titleId = `${id}-title`;
+  const bodyId = `${id}-body`;
 
   return (
     <section id={id} class={`workspace-section ${className}`.trim()} aria-labelledby={titleId}>
@@ -21,18 +32,21 @@ export function WorkspaceSection({
             {description ? <p class="workspace-section__description">{description}</p> : null}
           </div>
         </div>
-        {actions ? <div class="workspace-section__actions">{actions}</div> : null}
+        <div class="section-controls">
+          {actions ? <div class="workspace-section__actions">{actions}</div> : null}
+          <SectionToggle title={title} expanded={expanded} controls={bodyId} onClick={onToggle} />
+        </div>
       </header>
-      <div class="workspace-section__body">{children}</div>
+      <div class="workspace-section__body" id={bodyId} hidden={!expanded}>{children}</div>
     </section>
   );
 }
 
-export function AppHeader({ pdfName, resultCount }) {
+export function AppHeader({ pdfName, resultCount, onNavigate }) {
   const steps = [
-    { href: '#setup', label: 'Set up', ready: Boolean(pdfName) },
-    { href: '#results', label: 'Review', ready: resultCount > 0 },
-    { href: '#exports', label: 'Export', ready: resultCount > 0 }
+    { id: 'setup', label: 'Set up', ready: Boolean(pdfName) },
+    { id: 'results', label: 'Review', ready: resultCount > 0 },
+    { id: 'exports', label: 'Export', ready: resultCount > 0 }
   ];
 
   return (
@@ -46,7 +60,7 @@ export function AppHeader({ pdfName, resultCount }) {
       </div>
       <nav class="workflow-nav" aria-label="Exam workflow">
         {steps.map((step, index) => (
-          <a key={step.href} href={step.href} class={step.ready ? 'is-ready' : ''}>
+          <a key={step.id} href={`#${step.id}`} class={step.ready ? 'is-ready' : ''} onClick={() => onNavigate(step.id)}>
             <span>{index + 1}</span>{step.label}
           </a>
         ))}

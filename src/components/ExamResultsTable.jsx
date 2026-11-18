@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import { ANSWER_OPTIONS, calculateScore, fixAnswers, multiAnswerQuestionsFor } from '../examDomain.mjs';
 import { combinedPdfPage, pdfSourceForResult } from '../services/pdfSources.mjs';
 import { updateExamResult } from '../services/resultState.mjs';
-import { EmptyState } from './WorkspaceSection.jsx';
+import { EmptyState, SectionToggle } from './WorkspaceSection.jsx';
 
 const range = (start, end = null) => end === null
   ? [...Array(start).keys()]
@@ -72,6 +72,7 @@ function ResultsSearch({ onSearch }) {
 }
 
 export function ExamResultsTable({ cfg, examResults, setExamResults, pdfSources, canAnnotatePdf, canViewOriginalPdf, onDownloadAnnotatedPdf, onViewOriginalPdf }) {
+  const [expanded, setExpanded] = useState(true);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
@@ -129,47 +130,54 @@ export function ExamResultsTable({ cfg, examResults, setExamResults, pdfSources,
   const sortIndicator = column => sorting?.[0] === column ? (sorting[1] === 'asc' ? ' ↑' : ' ↓') : '';
 
   return (
-    <div class="results-table">
-      <div class="results-toolbar">
-        <label>Show
-          <select value={pageSize} onChange={event => { setPage(0); setPageSize(Number(event.target.value)); }}>
-            {[10, 20, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}
-          </select>
-          exams
-        </label>
-        <ResultsSearch onSearch={value => { setPage(0); setSearch(value); }} />
+    <section aria-labelledby="scanned-papers-title">
+      <div class={`subsection-header${expanded ? '' : ' mb-0'}`}>
+        <h3 id="scanned-papers-title">Scanned papers</h3>
+        <SectionToggle title="Scanned papers" expanded={expanded} controls="scanned-papers-body"
+          onClick={() => setExpanded(previous => !previous)} />
       </div>
-      <div class="results-table__scroll" style={{ minHeight: `${pageSize * 2 + 3.5}rem` }}>
-        <div class="exam-row" style={{ '--qcount': cfg.twoSided ? 160 : 40 }}>
-          <span class="result-paper-heading">Paper</span>
-          <button type="button" class="table-sort" onClick={() => toggleSort('page')}>Page{sortIndicator('page')}</button>
-          <button type="button" class="table-sort" onClick={() => toggleSort('student_number')}>Student #{sortIndicator('student_number')}</button>
-          <button type="button" class="table-sort" onClick={() => toggleSort('surname')}>Surname{sortIndicator('surname')}</button>
-          <button type="button" class="table-sort" onClick={() => toggleSort('initials')}>Initials{sortIndicator('initials')}</button>
-          <button type="button" class="table-sort" onClick={() => toggleSort('score')}>Score{sortIndicator('score')}</button>
-          {range(cfg.twoSided ? 160 : 40).map(question => (
-            <button type="button" key={question} class="table-sort" onClick={() => toggleSort(`q${question}`)}>
-              Q{question + 1}{sortIndicator(`q${question}`)}
-            </button>
-          ))}
+      <div class="results-table" id="scanned-papers-body" hidden={!expanded}>
+        <div class="results-toolbar">
+          <label>Show
+            <select value={pageSize} onChange={event => { setPage(0); setPageSize(Number(event.target.value)); }}>
+              {[10, 20, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}
+            </select>
+            exams
+          </label>
+          <ResultsSearch onSearch={value => { setPage(0); setSearch(value); }} />
         </div>
-        {shownExams.slice(first, last).map(index => <ResultRow key={`${examResults[index].sourceId ?? ''}-${examResults[index].page}-${index}`} cfg={cfg}
-          result={examResults[index]} index={index} setExamResults={setExamResults} multiAnswerQuestions={multiAnswerQuestions}
-          pdfSources={pdfSources} canAnnotatePdf={canAnnotatePdf} canViewOriginalPdf={canViewOriginalPdf}
-          onDownloadAnnotatedPdf={onDownloadAnnotatedPdf} onViewOriginalPdf={onViewOriginalPdf} />)}
+        <div class="results-table__scroll" style={{ minHeight: `${pageSize * 2 + 3.5}rem` }}>
+          <div class="exam-row" style={{ '--qcount': cfg.twoSided ? 160 : 40 }}>
+            <span class="result-paper-heading">Paper</span>
+            <button type="button" class="table-sort" onClick={() => toggleSort('page')}>Page{sortIndicator('page')}</button>
+            <button type="button" class="table-sort" onClick={() => toggleSort('student_number')}>Student #{sortIndicator('student_number')}</button>
+            <button type="button" class="table-sort" onClick={() => toggleSort('surname')}>Surname{sortIndicator('surname')}</button>
+            <button type="button" class="table-sort" onClick={() => toggleSort('initials')}>Initials{sortIndicator('initials')}</button>
+            <button type="button" class="table-sort" onClick={() => toggleSort('score')}>Score{sortIndicator('score')}</button>
+            {range(cfg.twoSided ? 160 : 40).map(question => (
+              <button type="button" key={question} class="table-sort" onClick={() => toggleSort(`q${question}`)}>
+                Q{question + 1}{sortIndicator(`q${question}`)}
+              </button>
+            ))}
+          </div>
+          {shownExams.slice(first, last).map(index => <ResultRow key={`${examResults[index].sourceId ?? ''}-${examResults[index].page}-${index}`} cfg={cfg}
+            result={examResults[index]} index={index} setExamResults={setExamResults} multiAnswerQuestions={multiAnswerQuestions}
+            pdfSources={pdfSources} canAnnotatePdf={canAnnotatePdf} canViewOriginalPdf={canViewOriginalPdf}
+            onDownloadAnnotatedPdf={onDownloadAnnotatedPdf} onViewOriginalPdf={onViewOriginalPdf} />)}
+        </div>
+        <div class="results-footer">
+          <span>Showing {shownExams.length === 0 ? 0 : first + 1}–{last} of {shownExams.length}
+            {search ? ` (${examResults.length} total)` : ''}</span>
+          <nav class="results-pagination" aria-label="Results pages">
+            <button type="button" onClick={() => setPage(0)} disabled={activePage === 0}>First</button>
+            <button type="button" onClick={() => setPage(Math.max(0, activePage - 1))} disabled={activePage === 0}>Previous</button>
+            {visiblePages.map(pageNumber => <button type="button" key={pageNumber}
+              class={pageNumber === activePage ? 'is-current' : ''} onClick={() => setPage(pageNumber)}>{pageNumber + 1}</button>)}
+            <button type="button" onClick={() => setPage(Math.min(lastPage, activePage + 1))} disabled={activePage === lastPage}>Next</button>
+            <button type="button" onClick={() => setPage(lastPage)} disabled={activePage === lastPage}>Last</button>
+          </nav>
+        </div>
       </div>
-      <div class="results-footer">
-        <span>Showing {shownExams.length === 0 ? 0 : first + 1}–{last} of {shownExams.length}
-          {search ? ` (${examResults.length} total)` : ''}</span>
-        <nav class="results-pagination" aria-label="Results pages">
-          <button type="button" onClick={() => setPage(0)} disabled={activePage === 0}>First</button>
-          <button type="button" onClick={() => setPage(Math.max(0, activePage - 1))} disabled={activePage === 0}>Previous</button>
-          {visiblePages.map(pageNumber => <button type="button" key={pageNumber}
-            class={pageNumber === activePage ? 'is-current' : ''} onClick={() => setPage(pageNumber)}>{pageNumber + 1}</button>)}
-          <button type="button" onClick={() => setPage(Math.min(lastPage, activePage + 1))} disabled={activePage === lastPage}>Next</button>
-          <button type="button" onClick={() => setPage(lastPage)} disabled={activePage === lastPage}>Last</button>
-        </nav>
-      </div>
-    </div>
+    </section>
   );
 }

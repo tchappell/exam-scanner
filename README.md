@@ -92,6 +92,10 @@ Download the **working dataset** to save your corrected exams, questionable
 scans and their review status, comparison decisions, and manual Canvas
 pairings. When you resume, the questionable-scan queue is available immediately.
 Reload the original PDFs to rebuild missing crops from the saved page alignment.
+Use the section arrows to collapse completed or long sections. In **Questionable
+scans**, choosing a correction marks the item reviewed. **Mark as reviewed**
+keeps its current answer. Turn off **Show reviewed items** to see just the items
+still awaiting review.
 
 ### Match papers to Canvas students
 
@@ -242,13 +246,10 @@ individual setting takes precedence over a range, and a range takes precedence
 over the exam default. A multi-answer response earns the question's mark when
 its selected set exactly matches the keyed set.
 
-Internally and in `raw_results.csv`, a selected set is stored in A-E order in
-the existing question column: for example, selecting D and B is exported as
-`BD` in `Q1`. This is a provisional application format because the public QUT
-ACSPRI documentation does not specify the multi-response encoding used by its
-`raw_results.csv`. Generic queXF multiple-choice exports use one column per
-choice, so the CSV formatting remains isolated in `src/services/resultExports.mjs`
-for adjustment when a real ACSPRI multi-answer export becomes available.
+In `raw_results.csv`, each question has one column. Multiple selected letters
+are stored together in A–E order. For example, selecting D and B is exported
+as `BD`. This matches the encoding in an official ACSPRI multi-answer export
+checked with the app.
 
 ## Current architecture
 

@@ -77,14 +77,14 @@ test('resuming saved work restores questionable marks, review decisions and the 
   const questionable = page.getByTestId('questionable-result');
   const first = questionable.and(page.locator('[data-question="1"]'));
   const reverse = questionable.and(page.locator('[data-question="41"]'));
-  const showResolved = page.getByLabel('Show resolved items');
+  const showReviewed = page.getByLabel('Show reviewed items');
   const corrected = page.getByTestId('exam-result').getByLabel('Question 1 response', { exact: true });
   const pdfInput = page.locator('#pdf-upload');
   await expect(questionable).toHaveCount(2);
   await expect(reverse.locator('img')).toHaveAttribute('src', legacyCrop);
   await first.getByRole('button', { name: 'B', exact: true }).click();
   await expect(corrected).toHaveValue('B');
-  await showResolved.uncheck();
+  await showReviewed.uncheck();
   await expect(first).toHaveCount(0);
   await expect(reverse).toBeVisible();
 
@@ -103,13 +103,13 @@ test('resuming saved work restores questionable marks, review decisions and the 
   await page.reload();
   await importDataset(page, saved);
   await expect(corrected).toHaveValue('B');
-  await showResolved.uncheck();
+  await showReviewed.uncheck();
   await expect(first).toHaveCount(0);
   await expect(reverse).toBeVisible();
   await expect(reverse.locator('img')).toHaveCount(0);
   await expect(reverse).toContainText(/load .*pdf/i);
 
-  await showResolved.check();
+  await showReviewed.check();
   await pdfInput.setInputFiles(source.file);
   await expectCropColor(first.locator('img'), 0);
   await expectCropColor(reverse.locator('img'), 1);

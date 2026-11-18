@@ -1,8 +1,10 @@
+import { useState } from 'preact/hooks';
 import { multiAnswerQuestionsFor } from '../examDomain.mjs';
 import { buildRawResultsCsvRows, buildResultsCsvRows } from '../services/resultExports.mjs';
 import { buildWorkingDataset, readWorkingDataset } from '../services/workingDataset.mjs';
 import { createCSV } from '../util/csv.mjs';
 import { downloadFile } from '../util/downloads.mjs';
+import { SectionToggle } from './WorkspaceSection.jsx';
 
 export function ResultsFileExchange({
   cfg,
@@ -13,6 +15,7 @@ export function ResultsFileExchange({
   tasDraft,
   canSaveDataset
 }) {
+  const [expanded, setExpanded] = useState(true);
   const exportResults = () => {
     const rows = buildResultsCsvRows({
       examResults,
@@ -36,10 +39,12 @@ export function ResultsFileExchange({
 
   return (
     <section class="results-exchange" aria-labelledby="results-files-title">
-      <div class="subsection-header">
+      <div class={`subsection-header${expanded ? '' : ' mb-0'}`}>
         <div><p class="subsection-header__eyebrow">Files</p><h3 id="results-files-title">Results and saved work</h3></div>
+        <SectionToggle title="Results and saved work" expanded={expanded} controls="results-files-body"
+          onClick={() => setExpanded(previous => !previous)} />
       </div>
-      <div class="export-grid">
+      <div id="results-files-body" class="export-grid" hidden={!expanded}>
         <button class="export-card" disabled={examResults.length === 0} onClick={exportResults}>
           <strong>Download grade summary</strong><span>results.csv · scores and student details</span>
         </button>

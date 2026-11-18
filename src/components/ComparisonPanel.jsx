@@ -8,6 +8,7 @@ import { renderComparisonCrops } from '../services/comparisonCrops.mjs';
 import { combinedPdfPage } from '../services/pdfSources.mjs';
 import { updateExamResult } from '../services/resultState.mjs';
 import { loadCSV } from '../util/csv.mjs';
+import { SectionToggle } from './WorkspaceSection.jsx';
 
 const fields = [
   ['cfg_checkNumbers', 'Student numbers'],
@@ -77,6 +78,7 @@ function Difference({ diff, crop, cropError, hasPdf, preparing, cancelled, decis
 }
 
 export function ComparisonPanel({ comparison, setComparison, cfg, pdfSources = [], examResults, setExamResults, currentlyScanning, onViewPage, onViewImage }) {
+  const [expanded, setExpanded] = useState(true);
   const [error, setError] = useState(null);
   const [showReviewed, setShowReviewed] = useState(false);
   const [page, setPage] = useState(0);
@@ -239,90 +241,100 @@ export function ComparisonPanel({ comparison, setComparison, cfg, pdfSources = [
   };
 
   return <section class="review-panel comparison-panel" aria-labelledby="comparison-title">
-    <div class="review-panel__header">
-      <div><p class="review-panel__eyebrow">Official results</p><h3 id="comparison-title">Compare another scan</h3></div>
-      {comparison.results ? <button type="button" class="btn btn-sm btn-outline-secondary" disabled={controlsLocked}
-        onClick={() => { cancelPreparation(false); setComparison({}); setError(null); }}>Remove comparison</button> : null}
+    <div class={`review-panel__header${expanded ? '' : ' mb-0'}`}>
+      <div>
+        <p class="review-panel__eyebrow">Official results</p>
+        <h3 id="comparison-title">Compare another scan</h3>
+        {!expanded && review && !settingsChanged ? <p class="form-text mb-0">{pending.length} to review · {differences.length - pending.length} reviewed</p> : null}
+      </div>
+      <div class="section-controls flex-wrap">
+        {expanded && comparison.results ? <button type="button" class="btn btn-sm btn-outline-secondary" disabled={controlsLocked}
+          onClick={() => { cancelPreparation(false); setComparison({}); setError(null); }}>Remove comparison</button> : null}
+        <SectionToggle title="Compare another scan" expanded={expanded} controls="comparison-body"
+          onClick={() => setExpanded(previous => !previous)} />
+      </div>
     </div>
-    <p class="comparison-panel__intro">Import the official raw results CSV when it arrives. Compare it with your reviewed exams, then keep your result or use the imported value for each difference. Papers are paired by source PDF and page.</p>
-    <div class="comparison-panel__import">
-      <input type="file" accept=".csv,text/csv" aria-label="Import another scan for comparison"
-        disabled={controlsLocked || examResults.length === 0} onChange={importFile} />
-      {comparison.filename ? <strong>{comparison.filename}</strong> : null}
-    </div>
-    {examResults.length === 0 ? <p class="form-text">Scan exams or resume saved work before importing a comparison.</p> : null}
-    {error ? <p class="alert alert-danger" role="alert">{error}</p> : null}
-    {comparison.results ? <>
-      <div class="comparison-panel__settings">
-        {fields.map(([field, label]) => <label class="compact-check" key={field}>
-          <input type="checkbox" checked={comparison[field]} disabled={controlsLocked}
-            onChange={event => setComparison(previous => ({ ...previous, [field]: event.target.checked }))} />{label}
-        </label>)}
-        {sources.length > 1 && !multipleFiles ? <div class="field-group">
-          <label htmlFor="comparison-source">Match CSV pages against</label>
-          <select id="comparison-source" class="form-select" value={targetSourceId} disabled={controlsLocked}
-            onChange={event => {
-              const id = event.target.value;
-              setComparison(previous => ({ ...previous, cfg_sourceId: id, cfg_firstPage: defaultFirstPage(id) }));
-              setError(null);
-            }}>
-            <option value="" disabled>Choose a source PDF</option>
-            {sources.map((source, index) => <option key={source.id} value={source.id}>
-              {source.name ? `${index + 1}. ${source.name}` : 'Papers without a source PDF'}
-            </option>)}
-            {canCompareCombinedPdf(pdfSources) ? <option value={COMBINED_COMPARISON_SOURCE}>Combined TAS submission</option> : null}
-          </select>
-        </div> : null}
-        <div class="field-group">
-          <label htmlFor="comparison-first-page">CSV page 1 corresponds to {combined ? 'combined submission page' : 'PDF page'}</label>
-          <input id="comparison-first-page" type="number" min="1" step="1" value={comparison.cfg_firstPage} disabled={controlsLocked}
-            onChange={event => setComparison(previous => ({ ...previous, cfg_firstPage: Number(event.target.value) }))} />
+    <div id="comparison-body" hidden={!expanded}>
+      <p class="comparison-panel__intro">Import the official raw results CSV when it arrives. Compare it with your reviewed exams, then keep your result or use the imported value for each difference. Papers are paired by source PDF and page.</p>
+      <div class="comparison-panel__import">
+        <input type="file" accept=".csv,text/csv" aria-label="Import another scan for comparison"
+          disabled={controlsLocked || examResults.length === 0} onChange={importFile} />
+        {comparison.filename ? <strong>{comparison.filename}</strong> : null}
+      </div>
+      {examResults.length === 0 ? <p class="form-text">Scan exams or resume saved work before importing a comparison.</p> : null}
+      {error ? <p class="alert alert-danger" role="alert">{error}</p> : null}
+      {comparison.results ? <>
+        <div class="comparison-panel__settings">
+          {fields.map(([field, label]) => <label class="compact-check" key={field}>
+            <input type="checkbox" checked={comparison[field]} disabled={controlsLocked}
+              onChange={event => setComparison(previous => ({ ...previous, [field]: event.target.checked }))} />{label}
+          </label>)}
+          {sources.length > 1 && !multipleFiles ? <div class="field-group">
+            <label htmlFor="comparison-source">Match CSV pages against</label>
+            <select id="comparison-source" class="form-select" value={targetSourceId} disabled={controlsLocked}
+              onChange={event => {
+                const id = event.target.value;
+                setComparison(previous => ({ ...previous, cfg_sourceId: id, cfg_firstPage: defaultFirstPage(id) }));
+                setError(null);
+              }}>
+              <option value="" disabled>Choose a source PDF</option>
+              {sources.map((source, index) => <option key={source.id} value={source.id}>
+                {source.name ? `${index + 1}. ${source.name}` : 'Papers without a source PDF'}
+              </option>)}
+              {canCompareCombinedPdf(pdfSources) ? <option value={COMBINED_COMPARISON_SOURCE}>Combined TAS submission</option> : null}
+            </select>
+          </div> : null}
+          <div class="field-group">
+            <label htmlFor="comparison-first-page">CSV page 1 corresponds to {combined ? 'combined submission page' : 'PDF page'}</label>
+            <input id="comparison-first-page" type="number" min="1" step="1" value={comparison.cfg_firstPage} disabled={controlsLocked}
+              onChange={event => setComparison(previous => ({ ...previous, cfg_firstPage: Number(event.target.value) }))} />
+          </div>
+          <button type="button" class="btn btn-primary" disabled={controlsLocked || examResults.length === 0}
+            onClick={() => compare(comparison)}>Compare results</button>
         </div>
-        <button type="button" class="btn btn-primary" disabled={controlsLocked || examResults.length === 0}
-          onClick={() => compare(comparison)}>Compare results</button>
-      </div>
-      {multipleFiles ? <p class="form-text">The CSV lists multiple scanned files. File names identify the batches, and the page offset applies to each file.</p> : null}
-      {combined ? <p class="form-text">Combined pages follow the batch order and page ranges used when appending scans to the TAS request. Page 1 is the first appended scan page.</p> : null}
-      <p class="form-text">{cropRunning
-        ? 'Comparison settings are locked while images are prepared. Use Cancel to stop and change the settings.'
-        : !review ? 'CSV loaded. Choose the fields and page offset, then select Compare results.'
-          : 'Changing these options takes effect with Compare results. Earlier choices are kept in your exam results.'}</p>
-    </> : null}
-    {settingsChanged ? <p class="comparison-panel__notice" role="status">Settings changed. Choose Compare results to update the differences.</p> : null}
-    {review && !settingsChanged ? <>
-      <div class="comparison-panel__summary" aria-live="polite">
-        <strong>{review.matchedCount} papers compared · {pending.length} differences to review · {differences.length - pending.length} reviewed</strong>
-        <label class="compact-check"><input type="checkbox" checked={showReviewed}
-          onChange={event => { setShowReviewed(event.target.checked); setPage(0); }} />Show reviewed differences</label>
-      </div>
-      {cropRunning ? <div class="comparison-panel__image-progress">
-        <span class="form-text" role="status">Preparing comparison images: {cropProgress?.completed ?? 0} / {cropProgress?.total ?? missingCount}</span>
-        <button type="button" class="btn btn-sm btn-outline-secondary" onClick={() => cancelPreparation()}>Cancel</button>
-      </div> : null}
-      {cropCancelled ? <p class="comparison-panel__notice" role="status">Image preparation cancelled. Prepared images and your corrections have been kept.</p> : null}
-      {!cropRunning && missingCount > 0 ? <button type="button" class="btn btn-sm btn-outline-primary comparison-panel__prepare-images"
-        disabled={controlsLocked} onClick={() => prepareImages(comparison)}>
-        {cropCancelled || differences.some(diff => diff.img || comparison.cropImages?.[diff.id]?.src) ? 'Prepare remaining images' : 'Prepare comparison images'}
-      </button> : null}
-      {review.currentOnlyPages?.length > 0 ? <p class="comparison-panel__notice">No imported result for {formatPageReferences(review.currentOnlyPages)}. Your results are kept.</p> : null}
-      {review.importedOnlyPages?.length > 0 ? <p class="comparison-panel__notice">Imported {formatPageReferences(review.importedOnlyPages)} have no current paper to compare.</p> : null}
-      {review.ambiguousPages?.length > 0 ? <p class="comparison-panel__notice">More than one current paper has the same page reference: {formatPageReferences(review.ambiguousPages)}.</p> : null}
-      {review.invalidCurrentPages?.length > 0 ? <p class="comparison-panel__notice">{review.invalidCurrentPages.length} current papers have no valid PDF page number and could not be compared.</p> : null}
-      {pending.length === 0 ? <p class="review-panel__empty">{differences.length === 0 ? 'No differences found.' : 'All differences reviewed.'}</p> : null}
-      {visible.slice(activePage * 30, (activePage + 1) * 30).map(diff => {
-        const result = examResults[diff.i];
-        if (!matchesDifference(result, diff)) return null;
-        return <Difference key={diff.id} diff={diff} crop={comparison.cropImages?.[diff.id]} cropError={cropErrors[diff.id]}
-          hasPdf={loadedPdfs.has(result.sourceId)} preparing={cropRunning} cancelled={cropCancelled} decision={isReviewed(diff)}
-          cfg={cfg} result={result} pdfSources={pdfSources}
-          onChoose={value => choose(diff, value)} onViewPage={onViewPage} onViewImage={onViewImage}
-          onRetryCrop={() => prepareImages(comparison)} />;
-      })}
-      {lastPage > 0 ? <div class="comparison-panel__pagination">
-        <button type="button" class="btn btn-sm btn-outline-secondary" disabled={activePage === 0} onClick={() => setPage(activePage - 1)}>Previous differences</button>
-        <span>{activePage + 1} / {lastPage + 1}</span>
-        <button type="button" class="btn btn-sm btn-outline-secondary" disabled={activePage === lastPage} onClick={() => setPage(activePage + 1)}>Next differences</button>
-      </div> : null}
-    </> : null}
+        {multipleFiles ? <p class="form-text">The CSV lists multiple scanned files. File names identify the batches, and the page offset applies to each file.</p> : null}
+        {combined ? <p class="form-text">Combined pages follow the batch order and page ranges used when appending scans to the TAS request. Page 1 is the first appended scan page.</p> : null}
+        <p class="form-text">{cropRunning
+          ? 'Comparison settings are locked while images are prepared. Use Cancel to stop and change the settings.'
+          : !review ? 'CSV loaded. Choose the fields and page offset, then select Compare results.'
+            : 'Changing these options takes effect with Compare results. Earlier choices are kept in your exam results.'}</p>
+      </> : null}
+      {settingsChanged ? <p class="comparison-panel__notice" role="status">Settings changed. Choose Compare results to update the differences.</p> : null}
+      {review && !settingsChanged ? <>
+        <div class="comparison-panel__summary" aria-live="polite">
+          <strong>{review.matchedCount} papers compared · {pending.length} differences to review · {differences.length - pending.length} reviewed</strong>
+          <label class="compact-check"><input type="checkbox" checked={showReviewed}
+            onChange={event => { setShowReviewed(event.target.checked); setPage(0); }} />Show reviewed differences</label>
+        </div>
+        {cropRunning ? <div class="comparison-panel__image-progress">
+          <span class="form-text" role="status">Preparing comparison images: {cropProgress?.completed ?? 0} / {cropProgress?.total ?? missingCount}</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" onClick={() => cancelPreparation()}>Cancel</button>
+        </div> : null}
+        {cropCancelled ? <p class="comparison-panel__notice" role="status">Image preparation cancelled. Prepared images and your corrections have been kept.</p> : null}
+        {!cropRunning && missingCount > 0 ? <button type="button" class="btn btn-sm btn-outline-primary comparison-panel__prepare-images"
+          disabled={controlsLocked} onClick={() => prepareImages(comparison)}>
+          {cropCancelled || differences.some(diff => diff.img || comparison.cropImages?.[diff.id]?.src) ? 'Prepare remaining images' : 'Prepare comparison images'}
+        </button> : null}
+        {review.currentOnlyPages?.length > 0 ? <p class="comparison-panel__notice">No imported result for {formatPageReferences(review.currentOnlyPages)}. Your results are kept.</p> : null}
+        {review.importedOnlyPages?.length > 0 ? <p class="comparison-panel__notice">Imported {formatPageReferences(review.importedOnlyPages)} have no current paper to compare.</p> : null}
+        {review.ambiguousPages?.length > 0 ? <p class="comparison-panel__notice">More than one current paper has the same page reference: {formatPageReferences(review.ambiguousPages)}.</p> : null}
+        {review.invalidCurrentPages?.length > 0 ? <p class="comparison-panel__notice">{review.invalidCurrentPages.length} current papers have no valid PDF page number and could not be compared.</p> : null}
+        {pending.length === 0 ? <p class="review-panel__empty">{differences.length === 0 ? 'No differences found.' : 'All differences reviewed.'}</p> : null}
+        {visible.slice(activePage * 30, (activePage + 1) * 30).map(diff => {
+          const result = examResults[diff.i];
+          if (!matchesDifference(result, diff)) return null;
+          return <Difference key={diff.id} diff={diff} crop={comparison.cropImages?.[diff.id]} cropError={cropErrors[diff.id]}
+            hasPdf={loadedPdfs.has(result.sourceId)} preparing={cropRunning} cancelled={cropCancelled} decision={isReviewed(diff)}
+            cfg={cfg} result={result} pdfSources={pdfSources}
+            onChoose={value => choose(diff, value)} onViewPage={onViewPage} onViewImage={onViewImage}
+            onRetryCrop={() => prepareImages(comparison)} />;
+        })}
+        {lastPage > 0 ? <div class="comparison-panel__pagination">
+          <button type="button" class="btn btn-sm btn-outline-secondary" disabled={activePage === 0} onClick={() => setPage(activePage - 1)}>Previous differences</button>
+          <span>{activePage + 1} / {lastPage + 1}</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" disabled={activePage === lastPage} onClick={() => setPage(activePage + 1)}>Next differences</button>
+        </div> : null}
+      </> : null}
+    </div>
   </section>;
 }
