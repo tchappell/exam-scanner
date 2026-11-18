@@ -1,6 +1,7 @@
 import cvReadyPromise from "@techstark/opencv-js";
 import predictor from './predictor2';
 import { findPageRegistrationMarks } from './services/pageRegistrationMarks.mjs';
+import { fitCopiedPageAlignment } from './services/copiedPageAlignment.mjs';
 
 const ORB_FEATURES = 500;
 const ORB_RETRY_FEATURES = 1500;
@@ -531,6 +532,40 @@ const warpPdfPageLinear = async (bmp, templatePage, matricesOnly = false) => {
         alignmentError = error;
       }
       matOut?.delete();
+    }
+    const sourceMarks = findPageRegistrationMarks(cv, mat);
+    if (sourceMarks && template.registrationMarks) {
+      // Copied sheets can retain the corner squares while losing most bubble outlines.
+      cv.HoughCircles(blurred, detected, cv.HOUGH_GRADIENT, 1, 15, 4, 8, 18 * pdfScale, 27 * pdfScale);
+      const faintCircles = Array.from({ length: detected.cols }, (_, i) => [
+        detected.data32F[i * 3], detected.data32F[i * 3 + 1]
+      ]);
+      const copiedAlignment = fitCopiedPageAlignment(cv, {
+        mat, sourceMarks, templateMarks: template.registrationMarks,
+        circles: faintCircles, lattices: known_lattices[templatePage]
+      });
+      if (copiedAlignment) {
+        const homographies = [{
+          rect_x: 0, rect_y: 0, rect_w: template.mat.cols, rect_h: template.mat.rows,
+          matrix: copiedAlignment.matrix
+        }];
+        if (matricesOnly) return [null, homographies];
+        const inverse = cv.matFromArray(3, 3, cv.CV_64FC1, copiedAlignment.matrix);
+        const transform = new cv.Mat();
+        const matOut = new cv.Mat();
+        try {
+          invertAlignment(cv, inverse, transform, 'the copied answer sheet');
+          cv.warpPerspective(mat, matOut, transform, new cv.Size(template.mat.cols, template.mat.rows),
+            cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(255));
+          return [matOut, homographies];
+        } catch (error) {
+          matOut.delete();
+          throw error;
+        } finally {
+          inverse.delete();
+          transform.delete();
+        }
+      }
     }
     const side = templatePage === 0 ? 'front-side' : 'reverse-side';
     throw new PageAlignmentError(`Could not align this PDF page with the ${side} answer-sheet template. ${alignmentError.message} Check the scan quality and page order.`);

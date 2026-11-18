@@ -133,3 +133,52 @@ for (const [name, featureLimits] of [
     expect(answers).toBe(twoSidedExpected.answerPattern.repeat(twoSidedExpected.answerPatternRepeats));
   });
 }
+
+test('recovers both sides when the normal pass cannot detect enough bubble outlines', async ({ page }, testInfo) => {
+  await page.route(/\/src\/scannerWorker\.js\?worker_file/, async route => {
+    const response = await route.fetch();
+    const workerCode = await response.text();
+    // Force sparse normal detections on a synthetic sheet; leave the faint-outline retry intact.
+    expect(workerCode).toContain('15, 40, 28,');
+    await route.fulfill({ response, body: workerCode.replace('15, 40, 28,', '15, 40, 200,') });
+  });
+
+  await page.goto('/');
+  await page.locator('#pdf-upload').setInputFiles(twoSidedFixturePath);
+  await page.getByLabel('Two-sided?').check();
+  await page.getByRole('button', { name: 'Scan Exams', exact: true }).click();
+  const result = page.getByTestId('exam-result');
+  await expect(result).toHaveCount(1);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(result.locator('[data-field="student-number"]')).toHaveValue(twoSidedExpected.studentNumber);
+  await expect(result.locator('[data-field="surname"]')).toHaveValue(twoSidedExpected.surname);
+  await expect(result.locator('[data-field="initials"]')).toHaveValue(twoSidedExpected.initials);
+  const answers = await result.locator('select[data-question]').evaluateAll(selects => selects.map(select => select.value).join(''));
+  expect(answers).toBe(twoSidedExpected.answerPattern.repeat(twoSidedExpected.answerPatternRepeats));
+
+  // The fallback also supplies the geometry used by crops and annotated PDF exports.
+  const downloadPromise = page.waitForEvent('download');
+  await result.getByRole('button', { name: 'Download annotated PDF for page 1' }).click();
+  const download = await downloadPromise;
+  const pdfPath = testInfo.outputPath('copied-sheet-annotated.pdf');
+  await download.saveAs(pdfPath);
+  const pdf = await PDFDocument.load(await readFile(pdfPath));
+  expect(pdf.getPageCount()).toBe(2);
+});
+
+test('the faint-outline fallback rejects a front sheet in place of the reverse side', async ({ page }) => {
+  await page.route(/\/src\/scannerWorker\.js\?worker_file/, async route => {
+    const response = await route.fetch();
+    const workerCode = await response.text();
+    expect(workerCode).toContain('15, 40, 28,');
+    await route.fulfill({ response, body: workerCode.replace('15, 40, 28,', '15, 40, 200,') });
+  });
+  await page.goto('/');
+  await page.locator('#pdf-upload').setInputFiles(fixturePath);
+  await page.getByLabel('Two-sided?').check();
+  await page.locator('#endAt').fill('2');
+  await page.getByRole('button', { name: 'Scan Exams', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Stop scanning', exact: true })).toBeHidden();
+  await expect(page.getByRole('alert')).toContainText('reverse-side answer-sheet template');
+  await expect(page.getByTestId('exam-result')).toHaveCount(0);
+});
